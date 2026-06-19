@@ -31,5 +31,9 @@ lerna-debug.log*
 *.swo
 *~
 
+# Backend
+/.env
+*.db
+
 # OS
 Thumbs.db
