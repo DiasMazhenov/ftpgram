@@ -17,12 +17,3 @@ services:
       name: ftpgram-data
       mountPath: /data
       sizeGB: 1
-
-  - type: static
-    name: ftpgram
-    buildCommand: npm install && npm run build
-    publishDir: dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
