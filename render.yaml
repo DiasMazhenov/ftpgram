@@ -12,8 +12,4 @@ services:
       - key: TELEGRAM_SESSION
         sync: false
       - key: DB_PATH
-        value: /data/ftpgram.db
-    disk:
-      name: ftpgram-data
-      mountPath: /data
-      sizeGB: 1
+        value: /tmp/ftpgram.db
