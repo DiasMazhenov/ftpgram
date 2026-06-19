@@ -1,5 +1,4 @@
 services:
-  # Backend — Node.js Web Service + SQLite
   - type: web
     name: ftpgram-backend
     runtime: node
@@ -19,9 +18,8 @@ services:
       mountPath: /data
       sizeGB: 1
 
-staticSites:
-  # Frontend — React static site
-  - name: ftpgram
+  - type: static
+    name: ftpgram
     buildCommand: npm install && npm run build
     publishDir: dist
     routes:
