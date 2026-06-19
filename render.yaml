@@ -1,4 +1,26 @@
+services:
+  # Backend — Node.js Web Service + SQLite
+  - type: web
+    name: ftpgram-backend
+    runtime: node
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && node server.js
+    envVars:
+      - key: TELEGRAM_API_ID
+        sync: false
+      - key: TELEGRAM_API_HASH
+        sync: false
+      - key: TELEGRAM_SESSION
+        sync: false
+      - key: DB_PATH
+        value: /data/ftpgram.db
+    disk:
+      name: ftpgram-data
+      mountPath: /data
+      sizeGB: 1
+
 staticSites:
+  # Frontend — React static site
   - name: ftpgram
     buildCommand: npm install && npm run build
     publishDir: dist
