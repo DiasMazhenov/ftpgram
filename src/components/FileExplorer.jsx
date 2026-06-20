@@ -53,7 +53,7 @@ export const FileExplorer = () => {
   const fileItems = items.filter(f => f.type === 'file')
 
   return (
-    <div className="flex h-full bg-bg-sidebar border-r border-gray-800">
+    <div className="flex flex-1 min-h-0 bg-bg-sidebar border-r border-gray-800">
       <div className="w-64 bg-bg-sidebar flex flex-col">
         <div className="p-4 border-b border-gray-800">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Чаты и папки</h2>

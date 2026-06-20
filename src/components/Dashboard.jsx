@@ -33,7 +33,7 @@ export const Dashboard = () => {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex flex-col max-h-[45vh] overflow-y-auto scrollbar-thin">
       <div className="p-6 border-b border-gray-800">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
