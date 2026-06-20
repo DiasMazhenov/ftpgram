@@ -36,11 +36,6 @@ export const FileExplorer = () => {
     setFolderName('')
   }
 
-  const getFileIcon = (type) => {
-    if (type === 'folder') return <Folder className="text-yellow-400" size={40} />
-    return <File className="text-gray-400" size={40} />
-  }
-
   const formatSize = (size) => {
     if (!size || size === 0) return ''
     const k = 1024
@@ -53,12 +48,12 @@ export const FileExplorer = () => {
   const fileItems = items.filter(f => f.type === 'file')
 
   return (
-    <div className="flex flex-1 min-h-0 bg-bg-sidebar border-r border-gray-800">
-      <div className="w-64 bg-bg-sidebar flex flex-col">
-        <div className="p-4 border-b border-gray-800">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-bg-main md:flex-row">
+      <div className="flex max-h-48 min-h-0 flex-col border-b border-gray-800 bg-bg-sidebar md:max-h-none md:w-64 md:flex-shrink-0 md:border-b-0 md:border-r">
+        <div className="border-b border-gray-800 p-4">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Чаты и папки</h2>
         </div>
-        <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
+        <div className="flex-1 overflow-y-auto p-2 scrollbar-thin">
           {loading ? (
             <div className="p-4 text-sm text-gray-500">Загрузка...</div>
           ) : (
@@ -76,30 +71,30 @@ export const FileExplorer = () => {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col bg-bg-main">
-        <div className="p-4 border-b border-gray-800 flex items-center gap-3">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg-main">
+        <div className="flex items-center gap-3 border-b border-gray-800 px-5 py-4">
           {currentFolder && (
-            <button onClick={handleBack} className="p-1 hover:bg-bg-hover rounded-md">
+            <button onClick={handleBack} className="rounded-md p-1 hover:bg-bg-hover">
               <ArrowLeft size={20} className="text-gray-400" />
             </button>
           )}
-          <h1 className="text-lg font-semibold text-white">
+          <h1 className="min-w-0 truncate text-lg font-semibold text-white">
             {currentFolder ? folderName : 'Файлы из Telegram'}
           </h1>
         </div>
 
-        <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
+        <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
           {loading ? (
             <div className="flex items-center justify-center h-full text-gray-500">
               <p>Загрузка файлов...</p>
             </div>
           ) : fileItems.length > 0 || folders.length > 0 ? (
-            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
               {/* Вложенные папки */}
               {folders.map(folder => (
                 <div
                   key={folder.id}
-                  className="bg-bg-card hover:bg-bg-hover rounded-lg p-4 cursor-pointer transition-all border border-transparent hover:border-gray-700"
+                  className="min-w-0 cursor-pointer rounded-lg border border-transparent bg-bg-card p-4 transition-all hover:border-gray-700 hover:bg-bg-hover"
                   onClick={() => handleFolderClick(folder)}
                 >
                   <div className="flex justify-center mb-3">
@@ -112,7 +107,7 @@ export const FileExplorer = () => {
               ))}
               {/* Файлы */}
               {fileItems.map(file => (
-                <div key={file.id} className="bg-bg-card hover:bg-bg-hover rounded-lg p-4 cursor-pointer transition-all border border-transparent hover:border-gray-700">
+                <div key={file.id} className="min-w-0 cursor-pointer rounded-lg border border-transparent bg-bg-card p-4 transition-all hover:border-gray-700 hover:bg-bg-hover">
                   <div className="flex justify-center mb-3">
                     <File className="text-gray-400" size={40} />
                   </div>
@@ -136,7 +131,7 @@ export const FileExplorer = () => {
           )}
         </div>
 
-        <div className="p-2 border-t border-gray-800 bg-bg-sidebar/50 text-center">
+        <div className="border-t border-gray-800 bg-bg-sidebar/50 p-2 text-center">
           <p className="text-xs text-gray-500">
             {items.length > 0 ? `${items.length} элементов` : 'Ожидание данных от сервера'}
           </p>
