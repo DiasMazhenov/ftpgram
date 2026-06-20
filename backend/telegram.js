@@ -105,14 +105,13 @@ export async function reindex() {
 async function indexFiles() {
   console.log('📂 Индексация файлов...')
   clearDatabase()
+  let totalFiles = 0
 
   try {
     const dialogs = await client.getDialogs({ limit: 30 })
-    let totalFiles = 0
 
     for (const dialog of dialogs) {
       const folderId = `chat_${dialog.id}`
-      const fileIdPrefix = `${folderId}_msg`
       insertFolder(folderId, dialog.name || dialog.title || `Чат ${dialog.id}`)
 
       try {
@@ -120,61 +119,22 @@ async function indexFiles() {
 
         for (const msg of messages) {
           if (!msg) continue
+          const f = msg.file
+          if (!f) continue
 
-          // Пробуем все способы доступа к медиа
-          const media = msg.media
-          const photo = msg.photo
-          const document = msg.document
-          const file = msg.file
+          const fileId = `msg_${msg.id}_${dialog.id}`
+          const size = Number(f.size || 0)
+          const name = f.name || `file_${msg.id}`
 
-          let fileId, fileName, size, mimeType
-
-          if (media && media.className === 'MessageMediaPhoto' && media.photo) {
-            const p = media.photo
-            fileId = `${fileIdPrefix}_${msg.id}_photo`
-            const largest = p.sizes?.slice(-1)[0]
-            size = Number(largest?.size || 0)
-            fileName = `photo_${msg.id}.jpg`
-            mimeType = 'image/jpeg'
-          } else if (media && media.className === 'MessageMediaDocument' && media.document) {
-            const doc = media.document
-            fileId = `${fileIdPrefix}_${msg.id}_doc`
-            size = Number(doc.size || 0)
-            const nameAttr = doc.attributes?.find(a => a.className === 'DocumentAttributeFilename')
-            fileName = nameAttr?.fileName || `file_${msg.id}`
-            mimeType = doc.mimeType || 'application/octet-stream'
-          } else if (photo) {
-            fileId = `${fileIdPrefix}_${msg.id}_photo`
-            size = 0
-            fileName = `photo_${msg.id}.jpg`
-            mimeType = 'image/jpeg'
-          } else if (document) {
-            fileId = `${fileIdPrefix}_${msg.id}_doc`
-            size = Number(document.size || 0)
-            const nameAttr = document.attributes?.find(a => a.className === 'DocumentAttributeFilename')
-            fileName = nameAttr?.fileName || `file_${msg.id}`
-            mimeType = document.mimeType || 'application/octet-stream'
-          } else if (file) {
-            fileId = `${fileIdPrefix}_${msg.id}_file`
-            size = Number(file.size || 0)
-            fileName = file.name || `file_${msg.id}`
-            mimeType = file.mimeType || 'unknown'
-          } else {
-            continue
-          }
-
-          if (fileName) {
-            insertFile(fileId, fileName, folderId, size || 0, mimeType, msg.id, dialog.id)
-            totalFiles++
-          }
+          insertFile(fileId, name, folderId, size, f.mimeType || 'unknown', msg.id, dialog.id)
+          totalFiles++
         }
       } catch (e) {
-        // Пропускаем чаты без доступа
         console.error(`  ⚠️ ${dialog.name}: ${e.message}`)
       }
     }
 
-    console.log(`✅ Индексация завершена: ${totalFiles} файлов`)
+    console.log(`✅ Индексация: ${totalFiles} файлов`)
   } catch (err) {
     console.error('❌ Ошибка индексации:', err.message)
   }

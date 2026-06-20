@@ -67,16 +67,13 @@ app.get('/api/debug', async (req, res) => {
   if (!c) return res.json({ error: 'Нет подключения' })
   try {
     const dialogs = await c.getDialogs({ limit: 1 })
-    const msgs = await c.getMessages(dialogs[0].entity, { limit: 10 })
+    const msgs = await c.getMessages(dialogs[0].entity, { limit: 5 })
     const sample = msgs.map(m => ({
       id: m?.id,
-      msg: m?.message?.substring(0, 40),
-      mediaClass: m?.media?.className || 'none',
-      hasPhoto: !!m?.photo,
-      hasDoc: !!m?.document,
-      hasFile: !!m?.file
+      text: m?.message?.substring(0, 40),
+      file: m?.file ? { name: m.file.name, size: m.file.size } : null
     }))
-    res.json({ dialog: dialogs[0].name, sample })
+    res.json({ dialog: dialogs[0].name, total: msgs.length, sample })
   } catch (err) {
     res.json({ error: err.message })
   }
