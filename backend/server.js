@@ -66,16 +66,19 @@ app.get('/api/debug', async (req, res) => {
   const client = getTelegramClient()
   if (!client) return res.json({ error: 'Нет подключения' })
   try {
+    const { Api } = await import('telegram')
     const dialogs = await client.getDialogs({ limit: 1 })
-    const msg = await client.getMessages(dialogs[0].entity, { limit: 3 })
-    const sample = msg.map(m => ({
+    const result = await client.invoke(
+      new Api.messages.GetHistory({
+        peer: dialogs[0].inputEntity,
+        limit: 10
+      })
+    )
+    const sample = result.messages.slice(0, 5).map(m => ({
       id: m?.id,
-      message: m?.message?.substring(0, 50),
+      message: m?.message?.substring(0, 80),
       hasMedia: !!m?.media,
-      mediaType: m?.media?.className || 'none',
-      hasPhoto: !!m?.photo,
-      hasDocument: !!m?.document,
-      keys: m ? Object.keys(m).filter(k => typeof m[k] !== 'function') : []
+      mediaClass: m?.media?.className || 'none'
     }))
     res.json({ dialog: dialogs[0].name, sample })
   } catch (err) {
