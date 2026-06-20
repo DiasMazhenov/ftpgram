@@ -51,6 +51,40 @@ app.get('/api/files', (req, res) => {
   res.json(getFileTree(folder))
 })
 
+// Принудительная переиндексация
+app.post('/api/reindex', async (req, res) => {
+  const { reindex } = await import('./telegram.js')
+  try {
+    await reindex()
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Отладка: посмотреть структуру сообщений первого чата
+app.get('/api/debug', async (req, res) => {
+  const { getTelegramClient } = await import('./telegram.js')
+  const client = getTelegramClient()
+  if (!client) return res.json({ error: 'Нет подключения' })
+  try {
+    const dialogs = await client.getDialogs({ limit: 1 })
+    const msg = await client.getMessages(dialogs[0].entity, { limit: 3 })
+    const sample = msg.map(m => ({
+      id: m?.id,
+      message: m?.message?.substring(0, 50),
+      hasMedia: !!m?.media,
+      mediaType: m?.media?.className || 'none',
+      hasPhoto: !!m?.photo,
+      hasDocument: !!m?.document,
+      keys: m ? Object.keys(m).filter(k => typeof m[k] !== 'function') : []
+    }))
+    res.json({ dialog: dialogs[0].name, sample })
+  } catch (err) {
+    res.json({ error: err.message })
+  }
+})
+
 // Инфо о файле
 app.get('/api/files/:id', (req, res) => {
   const file = getFileById(req.params.id)

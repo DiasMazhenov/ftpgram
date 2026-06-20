@@ -97,7 +97,11 @@ export async function signIn(phoneNumber, code, password = '') {
   }
 }
 
-// Индексация файлов
+// Индексация файлов (экспортируем для вызова из API)
+export async function reindex() {
+  await indexFiles()
+}
+
 async function indexFiles() {
   console.log('📂 Индексация файлов...')
   clearDatabase()
