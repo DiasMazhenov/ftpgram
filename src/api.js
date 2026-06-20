@@ -12,8 +12,11 @@ export async function fetchStats() {
   return res.json()
 }
 
-export async function fetchFiles() {
-  const res = await fetch(`${API_URL}/api/files`)
+export async function fetchFiles(folderId = null) {
+  const url = folderId
+    ? `${API_URL}/api/files?folder=${encodeURIComponent(folderId)}`
+    : `${API_URL}/api/files`
+  const res = await fetch(url)
   if (!res.ok) throw new Error(`Файлы: ${res.status}`)
   return res.json()
 }
