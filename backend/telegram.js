@@ -107,7 +107,6 @@ async function indexFiles() {
   clearDatabase()
 
   try {
-    const { Api } = await import('telegram')
     const dialogs = await client.getDialogs({ limit: 30 })
     let totalFiles = 0
 
@@ -117,55 +116,61 @@ async function indexFiles() {
       insertFolder(folderId, dialog.name || dialog.title || `Чат ${dialog.id}`)
 
       try {
-        const inputPeer = await client.getInputEntity(dialog.entity)
-        const result = await client.invoke(
-          new Api.messages.GetHistory({
-            peer: inputPeer,
-            limit: 50,
-            offsetId: 0,
-            addOffset: 0
-          })
-        )
+        const messages = await client.getMessages(dialog.entity, { limit: 50 })
 
-        for (const msg of result.messages) {
-          if (!msg || !msg.media || msg.media.className === 'MessageMediaEmpty') continue
+        for (const msg of messages) {
+          if (!msg) continue
+
+          // Пробуем все способы доступа к медиа
+          const media = msg.media
+          const photo = msg.photo
+          const document = msg.document
+          const file = msg.file
 
           let fileId, fileName, size, mimeType
 
-          if (msg.media.className === 'MessageMediaPhoto') {
-            const photo = msg.media.photo
+          if (media && media.className === 'MessageMediaPhoto' && media.photo) {
+            const p = media.photo
             fileId = `${fileIdPrefix}_${msg.id}_photo`
-            const largest = photo?.sizes?.slice(-1)[0]
+            const largest = p.sizes?.slice(-1)[0]
             size = Number(largest?.size || 0)
             fileName = `photo_${msg.id}.jpg`
             mimeType = 'image/jpeg'
-          } else if (msg.media.className === 'MessageMediaDocument') {
-            const doc = msg.media.document
+          } else if (media && media.className === 'MessageMediaDocument' && media.document) {
+            const doc = media.document
             fileId = `${fileIdPrefix}_${msg.id}_doc`
-            size = Number(doc?.size || 0)
-
-            const nameAttr = doc?.attributes?.find(a => a.className === 'DocumentAttributeFilename')
+            size = Number(doc.size || 0)
+            const nameAttr = doc.attributes?.find(a => a.className === 'DocumentAttributeFilename')
             fileName = nameAttr?.fileName || `file_${msg.id}`
-
-            const isVideo = doc?.attributes?.some(a => a.className === 'DocumentAttributeVideo')
-            const isAudio = doc?.attributes?.some(a => a.className === 'DocumentAttributeAudio')
-            const isSticker = doc?.attributes?.some(a => a.className === 'DocumentAttributeSticker')
-
-            mimeType = doc?.mimeType || 'application/octet-stream'
-            if (isSticker) mimeType = 'sticker'
-            else if (isVideo) mimeType = 'video'
-            else if (isAudio) mimeType = 'audio'
+            mimeType = doc.mimeType || 'application/octet-stream'
+          } else if (photo) {
+            fileId = `${fileIdPrefix}_${msg.id}_photo`
+            size = 0
+            fileName = `photo_${msg.id}.jpg`
+            mimeType = 'image/jpeg'
+          } else if (document) {
+            fileId = `${fileIdPrefix}_${msg.id}_doc`
+            size = Number(document.size || 0)
+            const nameAttr = document.attributes?.find(a => a.className === 'DocumentAttributeFilename')
+            fileName = nameAttr?.fileName || `file_${msg.id}`
+            mimeType = document.mimeType || 'application/octet-stream'
+          } else if (file) {
+            fileId = `${fileIdPrefix}_${msg.id}_file`
+            size = Number(file.size || 0)
+            fileName = file.name || `file_${msg.id}`
+            mimeType = file.mimeType || 'unknown'
           } else {
             continue
           }
 
-          if (size > 0) {
-            insertFile(fileId, fileName, folderId, size, mimeType, msg.id, dialog.id)
+          if (fileName) {
+            insertFile(fileId, fileName, folderId, size || 0, mimeType, msg.id, dialog.id)
             totalFiles++
           }
         }
       } catch (e) {
         // Пропускаем чаты без доступа
+        console.error(`  ⚠️ ${dialog.name}: ${e.message}`)
       }
     }
 
