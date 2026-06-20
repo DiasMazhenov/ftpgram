@@ -10,41 +10,27 @@ export const Dashboard = () => {
     webdavEnabled,
     uploadProgress,
     downloadProgress,
-    startConnectionSimulation,
+    stats,
+    checkStatus,
     toggleFtp,
     toggleWebdav
   } = useApp()
 
   const [statusColor, setStatusColor] = useState('text-gray-500')
-  const [speed, setSpeed] = useState('0.0 MB/s')
-
-  useEffect(() => {
-    if (connectionStatus === 'connected') {
-      const interval = setInterval(() => {
-        setSpeed(`${(Math.random() * 10 + 1).toFixed(1)} MB/s`)
-      }, 1000)
-      return () => clearInterval(interval)
-    }
-  }, [connectionStatus])
-
-  const getSpeed = () => {
-    if (connectionStatus === 'connected') return speed
-    return '0.0 MB/s'
-  }
-
-  const formatBytes = (bytes) => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
-  }
 
   useEffect(() => {
     if (connectionStatus === 'connected') setStatusColor('text-green-500')
     else if (connectionStatus === 'connecting') setStatusColor('text-yellow-500')
     else setStatusColor('text-gray-500')
   }, [connectionStatus])
+
+  const formatBytes = (bytes) => {
+    if (!bytes || bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i]
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -57,12 +43,11 @@ export const Dashboard = () => {
           <div className="flex items-center gap-4">
             <span className={`text-sm font-medium ${statusColor}`}>{connectionStatusText}</span>
             <button
-              onClick={startConnectionSimulation}
-              disabled={connectionStatus === 'connecting'}
-              className="flex items-center gap-2 px-4 py-2 bg-bg-card hover:bg-bg-hover text-gray-300 hover:text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={checkStatus}
+              className="flex items-center gap-2 px-4 py-2 bg-bg-card hover:bg-bg-hover text-gray-300 hover:text-white rounded-lg transition-colors"
             >
               <RefreshCw size={16} className={connectionStatus === 'connecting' ? 'animate-spin' : ''} />
-              Подключиться
+              Проверить
             </button>
           </div>
         </div>
@@ -85,15 +70,15 @@ export const Dashboard = () => {
 
           <div className="grid grid-cols-3 gap-4 mt-6">
             <div className="text-center">
-              <div className="text-2xl font-semibold text-white">{Math.floor(Math.random() * 1000) + 100}</div>
+              <div className="text-2xl font-semibold text-white">{stats.files}</div>
               <div className="text-sm text-gray-500">Файлов</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-semibold text-white">{Math.floor(Math.random() * 500) + 50}</div>
+              <div className="text-2xl font-semibold text-white">{stats.folders}</div>
               <div className="text-sm text-gray-500">Папок</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-semibold text-white">{formatBytes(Math.floor(Math.random() * 1000000000))}</div>
+              <div className="text-2xl font-semibold text-white">{formatBytes(stats.totalSize)}</div>
               <div className="text-sm text-gray-500">Занято места</div>
             </div>
           </div>
@@ -149,7 +134,9 @@ export const Dashboard = () => {
                   <p className="text-sm text-gray-500 mt-1">FTP/WebDAV</p>
                 </div>
               </div>
-              <span className="text-xl font-bold text-blue-400">{getSpeed()}</span>
+              <span className="text-xl font-bold text-blue-400">
+                {uploadProgress > 0 ? `${uploadProgress}%` : 'Ожидание'}
+              </span>
             </div>
 
             <div className="mb-3">
@@ -163,8 +150,7 @@ export const Dashboard = () => {
             </div>
 
             <div className="flex justify-between text-xs text-gray-500">
-              <span>{formatBytes(uploadProgress * 1024 * 1024 * 50)}</span>
-              <span>50 MB</span>
+              <span>Ожидание загрузки</span>
             </div>
           </div>
 
@@ -177,7 +163,9 @@ export const Dashboard = () => {
                   <p className="text-sm text-gray-500 mt-1">FTP/WebDAV</p>
                 </div>
               </div>
-              <span className="text-xl font-bold text-green-400">{getSpeed()}</span>
+              <span className="text-xl font-bold text-green-400">
+                {downloadProgress > 0 ? `${downloadProgress}%` : 'Ожидание'}
+              </span>
             </div>
 
             <div className="mb-3">
@@ -191,8 +179,7 @@ export const Dashboard = () => {
             </div>
 
             <div className="flex justify-between text-xs text-gray-500">
-              <span>{formatBytes(downloadProgress * 1024 * 1024 * 120)}</span>
-              <span>120 MB</span>
+              <span>Ожидание скачивания</span>
             </div>
           </div>
         </div>

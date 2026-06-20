@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { fetchStatus, fetchStats } from './api'
 
 const AppContext = createContext()
 
@@ -8,6 +9,7 @@ export const AppProvider = ({ children }) => {
   const [webdavEnabled, setWebdavEnabled] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [downloadProgress, setDownloadProgress] = useState(0)
+  const [stats, setStats] = useState({ files: 0, folders: 0, totalSize: 0 })
 
   const statusMessages = {
     disconnected: 'Отключено',
@@ -15,12 +17,33 @@ export const AppProvider = ({ children }) => {
     connected: 'Подключено'
   }
 
-  const startConnectionSimulation = () => {
-    setConnectionStatus('connecting')
-    setTimeout(() => {
-      setConnectionStatus('connected')
-    }, 2000)
-  }
+  const checkStatus = useCallback(async () => {
+    try {
+      const status = await fetchStatus()
+      setConnectionStatus(status.connected ? 'connected' : 'disconnected')
+    } catch {
+      setConnectionStatus('disconnected')
+    }
+  }, [])
+
+  const loadStats = useCallback(async () => {
+    try {
+      const data = await fetchStats()
+      setStats(data)
+    } catch {
+      // бэкенд недоступен
+    }
+  }, [])
+
+  useEffect(() => {
+    checkStatus()
+    loadStats()
+    const interval = setInterval(() => {
+      checkStatus()
+      loadStats()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [checkStatus, loadStats])
 
   const toggleFtp = () => setFtpEnabled(!ftpEnabled)
   const toggleWebdav = () => setWebdavEnabled(!webdavEnabled)
@@ -34,7 +57,8 @@ export const AppProvider = ({ children }) => {
         webdavEnabled,
         uploadProgress,
         downloadProgress,
-        startConnectionSimulation,
+        stats,
+        checkStatus,
         toggleFtp,
         toggleWebdav
       }}
