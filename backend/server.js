@@ -2,7 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import { initDatabase, getDatabase, getFileTree, getFileById } from './db.js'
-import { sendCode, signIn, isConnected, disconnect, autoConnect } from './telegram.js'
+import { sendCode, signIn, isConnected, disconnect, autoConnect, reindex, getTelegramClient } from './telegram.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -53,7 +53,6 @@ app.get('/api/files', (req, res) => {
 
 // Принудительная переиндексация
 app.post('/api/reindex', async (req, res) => {
-  const { reindex } = await import('./telegram.js')
   try {
     await reindex()
     res.json({ success: true })
@@ -64,7 +63,6 @@ app.post('/api/reindex', async (req, res) => {
 
 // Отладка: посмотреть структуру сообщений первого чата
 app.get('/api/debug', async (req, res) => {
-  const { getTelegramClient } = await import('./telegram.js')
   const client = getTelegramClient()
   if (!client) return res.json({ error: 'Нет подключения' })
   try {
