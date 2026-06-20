@@ -61,20 +61,21 @@ app.post('/api/reindex', async (req, res) => {
   }
 })
 
-// Отладка: посмотреть структуру сообщений первого чата
+// Отладка
 app.get('/api/debug', async (req, res) => {
   const client = getTelegramClient()
   if (!client) return res.json({ error: 'Нет подключения' })
   try {
+    const { Api } = await import('telegram')
     const dialogs = await client.getDialogs({ limit: 1 })
-    const messages = await client.getMessages(dialogs[0].entity, { limit: 10 })
-    const sample = messages.map(m => ({
+    const inputPeer = await client.getInputEntity(dialogs[0].entity)
+    const result = await client.invoke(
+      new Api.messages.GetHistory({ peer: inputPeer, limit: 10, offsetId: 0, addOffset: 0 })
+    )
+    const sample = result.messages.slice(0, 5).map(m => ({
       id: m?.id,
-      message: m?.message?.substring(0, 60),
-      hasFile: !!m?.file,
-      fileName: m?.file?.name || '-',
-      fileSize: m?.file?.size || 0,
-      fileMime: m?.file?.mimeType || '-'
+      msg: m?.message?.substring(0, 50),
+      mediaClass: m?.media?.className || 'none'
     }))
     res.json({ dialog: dialogs[0].name, sample })
   } catch (err) {

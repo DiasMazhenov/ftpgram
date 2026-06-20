@@ -107,6 +107,7 @@ async function indexFiles() {
   clearDatabase()
 
   try {
+    const { Api } = await import('telegram')
     const dialogs = await client.getDialogs({ limit: 30 })
     let totalFiles = 0
 
@@ -116,17 +117,50 @@ async function indexFiles() {
       insertFolder(folderId, dialog.name || dialog.title || `Чат ${dialog.id}`)
 
       try {
-        const messages = await client.getMessages(dialog.entity, { limit: 50 })
+        const inputPeer = await client.getInputEntity(dialog.entity)
+        const result = await client.invoke(
+          new Api.messages.GetHistory({
+            peer: inputPeer,
+            limit: 50,
+            offsetId: 0,
+            addOffset: 0
+          })
+        )
 
-        for (const msg of messages) {
-          if (!msg || !msg.file) continue
+        for (const msg of result.messages) {
+          if (!msg || !msg.media || msg.media.className === 'MessageMediaEmpty') continue
 
-          const { file } = msg
-          const fileId = `${fileIdPrefix}_${msg.id}_${file.name || 'file'}`
-          const size = Number(file.size || 0)
+          let fileId, fileName, size, mimeType
+
+          if (msg.media.className === 'MessageMediaPhoto') {
+            const photo = msg.media.photo
+            fileId = `${fileIdPrefix}_${msg.id}_photo`
+            const largest = photo?.sizes?.slice(-1)[0]
+            size = Number(largest?.size || 0)
+            fileName = `photo_${msg.id}.jpg`
+            mimeType = 'image/jpeg'
+          } else if (msg.media.className === 'MessageMediaDocument') {
+            const doc = msg.media.document
+            fileId = `${fileIdPrefix}_${msg.id}_doc`
+            size = Number(doc?.size || 0)
+
+            const nameAttr = doc?.attributes?.find(a => a.className === 'DocumentAttributeFilename')
+            fileName = nameAttr?.fileName || `file_${msg.id}`
+
+            const isVideo = doc?.attributes?.some(a => a.className === 'DocumentAttributeVideo')
+            const isAudio = doc?.attributes?.some(a => a.className === 'DocumentAttributeAudio')
+            const isSticker = doc?.attributes?.some(a => a.className === 'DocumentAttributeSticker')
+
+            mimeType = doc?.mimeType || 'application/octet-stream'
+            if (isSticker) mimeType = 'sticker'
+            else if (isVideo) mimeType = 'video'
+            else if (isAudio) mimeType = 'audio'
+          } else {
+            continue
+          }
 
           if (size > 0) {
-            insertFile(fileId, file.name || `file_${msg.id}`, folderId, size, file.mimeType || 'unknown', msg.id, dialog.id)
+            insertFile(fileId, fileName, folderId, size, mimeType, msg.id, dialog.id)
             totalFiles++
           }
         }
