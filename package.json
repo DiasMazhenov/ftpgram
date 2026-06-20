@@ -1,6 +1,6 @@
 {
   "name": "ftpgram",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Desktop FTP/WebDAV client for Telegram storage",
   "type": "module",
   "main": "index.js",
