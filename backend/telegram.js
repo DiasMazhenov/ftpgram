@@ -116,48 +116,40 @@ async function indexFiles() {
         const messages = await client.getMessages(dialog.entity, { limit: 50 })
 
         for (const msg of messages) {
-          if (!msg || !msg.media) continue
+          if (!msg) continue
 
           let fileId, fileName, size, mimeType
 
-          if (msg.media.photo) {
+          if (msg.photo) {
             // Фото
             fileId = `${fileIdPrefix}_${msg.id}_photo`
-            const photo = msg.media.photo
-            // Используем наибольший размер фото
-            const largestPhoto = photo.sizes?.slice(-1)[0]
-            size = largestPhoto?.size || 0
+            size = Number(msg.file?.size || 0)
             fileName = `photo_${msg.id}.jpg`
-            mimeType = 'image/jpeg'
-          } else if (msg.media.document) {
+            mimeType = msg.file?.mimeType || 'image/jpeg'
+          } else if (msg.document) {
             // Документ (файл, видео, аудио, стикер и т.д.)
-            const doc = msg.media.document
+            const doc = msg.document
             fileId = `${fileIdPrefix}_${msg.id}_doc`
-            size = doc.size || 0
+            size = Number(msg.file?.size || doc.size || 0)
 
             // Пытаемся получить имя файла из атрибутов
-            const nameAttr = doc.attributes?.find(a => a.fileName)
-            fileName = nameAttr?.fileName || `file_${msg.id}`
+            fileName = msg.file?.name || `file_${msg.id}`
 
             // Определяем тип по атрибутам
-            const isVideo = doc.attributes?.some(a => a.roundVideo || a.supportsStreaming)
-            const isAudio = doc.attributes?.some(a => a.voice || a.duration && !isVideo)
-            const isSticker = doc.attributes?.some(a => a.stickerSet)
+            const isVideo = Boolean(msg.video || msg.videoNote)
+            const isAudio = Boolean(msg.audio || msg.voice)
+            const isSticker = Boolean(msg.sticker)
 
-            mimeType = doc.mimeType || 'application/octet-stream'
+            mimeType = msg.file?.mimeType || doc.mimeType || 'application/octet-stream'
             if (isSticker) mimeType = 'sticker'
             else if (isVideo) mimeType = 'video'
             else if (isAudio) mimeType = 'audio'
-          } else if (msg.media.geo) {
-            continue // Пропускаем гео-точки
           } else {
-            continue // Неизвестный тип медиа
+            continue // Нет файла для индексации
           }
 
-          if (size > 0 || !fileName.includes('file_')) {
-            insertFile(fileId, fileName, folderId, size, mimeType, msg.id, dialog.id)
-            totalFiles++
-          }
+          insertFile(fileId, fileName, folderId, size, mimeType, msg.id, dialog.id)
+          totalFiles++
         }
       } catch (e) {
         // Пропускаем чаты без доступа
