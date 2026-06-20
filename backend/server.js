@@ -67,7 +67,7 @@ app.get('/api/debug', async (req, res) => {
   if (!client) return res.json({ error: 'Нет подключения' })
   try {
     const dialogs = await client.getDialogs({ limit: 1 })
-    const messages = await client.getMessages(dialogs[0].inputEntity, { limit: 10 })
+    const messages = await client.getMessages(dialogs[0].entity, { limit: 10 })
     const sample = messages.map(m => ({
       id: m?.id,
       message: m?.message?.substring(0, 60),

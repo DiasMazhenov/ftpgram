@@ -116,7 +116,7 @@ async function indexFiles() {
       insertFolder(folderId, dialog.name || dialog.title || `Чат ${dialog.id}`)
 
       try {
-        const messages = await client.getMessages(dialog.inputEntity, { limit: 50 })
+        const messages = await client.getMessages(dialog.entity, { limit: 50 })
 
         for (const msg of messages) {
           if (!msg || !msg.file) continue
