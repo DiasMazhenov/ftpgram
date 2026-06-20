@@ -47,7 +47,9 @@ app.post('/api/disconnect', async (req, res) => {
 
 // Файловая структура
 app.get('/api/files', (req, res) => {
-  res.json(getFileTree())
+  const folder = req.query.folder || null
+  res.json(getFileTree(folder))
+})
 })
 
 // Инфо о файле

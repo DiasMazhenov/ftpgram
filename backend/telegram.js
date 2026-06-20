@@ -104,27 +104,58 @@ async function indexFiles() {
 
   try {
     const dialogs = await client.getDialogs({ limit: 30 })
+    let totalFiles = 0
 
     for (const dialog of dialogs) {
       const folderId = `chat_${dialog.id}`
       insertFolder(folderId, dialog.name || dialog.title || `Чат ${dialog.id}`)
 
       try {
-        const { Api } = await import('telegram')
-        const messages = await client.getMessages(dialog.entity, {
-          limit: 100,
-          filter: new Api.InputMessagesFilterDocument()
-        })
+        // Получаем все сообщения без фильтра, затем фильтруем с медиа
+        const messages = await client.getMessages(dialog.entity, { limit: 50 })
 
         for (const msg of messages) {
-          if (msg.media) {
-            const doc = msg.media.document || msg.media
-            const fileId = `file_${msg.id}`
-            const size = doc?.size || 0
-            const mimeType = doc?.mimeType || 'unknown'
-            const fileName = doc?.attributes?.find(a => a.fileName)?.fileName || `file_${msg.id}`
+          if (!msg || !msg.media) continue
 
+          let fileId, fileName, size, mimeType
+
+          if (msg.media.photo) {
+            // Фото
+            fileId = `photo_${msg.id}`
+            const photo = msg.media.photo
+            // Используем наибольший размер фото
+            const largestPhoto = photo.sizes?.slice(-1)[0]
+            size = largestPhoto?.size || 0
+            fileName = `photo_${msg.id}.jpg`
+            mimeType = 'image/jpeg'
+          } else if (msg.media.document) {
+            // Документ (файл, видео, аудио, стикер и т.д.)
+            const doc = msg.media.document
+            fileId = `doc_${msg.id}`
+            size = doc.size || 0
+
+            // Пытаемся получить имя файла из атрибутов
+            const nameAttr = doc.attributes?.find(a => a.fileName)
+            fileName = nameAttr?.fileName || `file_${msg.id}`
+
+            // Определяем тип по атрибутам
+            const isVideo = doc.attributes?.some(a => a.roundVideo || a.supportsStreaming)
+            const isAudio = doc.attributes?.some(a => a.voice || a.duration && !isVideo)
+            const isSticker = doc.attributes?.some(a => a.stickerSet)
+
+            mimeType = doc.mimeType || 'application/octet-stream'
+            if (isSticker) mimeType = 'sticker'
+            else if (isVideo) mimeType = 'video'
+            else if (isAudio) mimeType = 'audio'
+          } else if (msg.media.geo) {
+            continue // Пропускаем гео-точки
+          } else {
+            continue // Неизвестный тип медиа
+          }
+
+          if (size > 0 || !fileName.includes('file_')) {
             insertFile(fileId, fileName, folderId, size, mimeType, msg.id, dialog.id)
+            totalFiles++
           }
         }
       } catch (e) {
@@ -132,7 +163,7 @@ async function indexFiles() {
       }
     }
 
-    console.log('✅ Индексация завершена')
+    console.log(`✅ Индексация завершена: ${totalFiles} файлов`)
   } catch (err) {
     console.error('❌ Ошибка индексации:', err.message)
   }

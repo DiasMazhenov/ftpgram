@@ -39,18 +39,32 @@ export function getDatabase() {
   return db
 }
 
-export function getFileTree(parentPath = '/') {
+export function getFileTree(folderId = null) {
+  if (folderId) {
+    const folders = db.prepare(`
+      SELECT id, name, 'folder' as type, NULL as size
+      FROM folders WHERE parent_id = ?
+      ORDER BY name
+    `).all(folderId)
+
+    const files = db.prepare(`
+      SELECT id, name, 'file' as type, size
+      FROM files WHERE folder_id = ?
+      ORDER BY name
+    `).all(folderId)
+
+    return [...folders, ...files]
+  }
+
   const folders = db.prepare(`
     SELECT id, name, 'folder' as type, NULL as size
-    FROM folders
-    WHERE parent_id IS NULL
+    FROM folders WHERE parent_id IS NULL
     ORDER BY name
   `).all()
 
   const files = db.prepare(`
     SELECT id, name, 'file' as type, size
-    FROM files
-    WHERE folder_id IS NULL
+    FROM files WHERE folder_id IS NULL
     ORDER BY name
   `).all()
 
