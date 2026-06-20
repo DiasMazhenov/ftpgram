@@ -108,6 +108,7 @@ async function indexFiles() {
 
     for (const dialog of dialogs) {
       const folderId = `chat_${dialog.id}`
+      const fileIdPrefix = `${folderId}_msg`
       insertFolder(folderId, dialog.name || dialog.title || `Чат ${dialog.id}`)
 
       try {
@@ -121,7 +122,7 @@ async function indexFiles() {
 
           if (msg.media.photo) {
             // Фото
-            fileId = `photo_${msg.id}`
+            fileId = `${fileIdPrefix}_${msg.id}_photo`
             const photo = msg.media.photo
             // Используем наибольший размер фото
             const largestPhoto = photo.sizes?.slice(-1)[0]
@@ -131,7 +132,7 @@ async function indexFiles() {
           } else if (msg.media.document) {
             // Документ (файл, видео, аудио, стикер и т.д.)
             const doc = msg.media.document
-            fileId = `doc_${msg.id}`
+            fileId = `${fileIdPrefix}_${msg.id}_doc`
             size = doc.size || 0
 
             // Пытаемся получить имя файла из атрибутов

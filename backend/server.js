@@ -50,7 +50,6 @@ app.get('/api/files', (req, res) => {
   const folder = req.query.folder || null
   res.json(getFileTree(folder))
 })
-})
 
 // Инфо о файле
 app.get('/api/files/:id', (req, res) => {
