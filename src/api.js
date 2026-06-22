@@ -66,11 +66,15 @@ export function moveItem(type, id, folderId = null) {
 
 export function downloadItem(id) {
   const link = document.createElement('a')
-  link.href = `${API_URL}/api/files/${encodeURIComponent(id)}/download`
+  link.href = getFileUrl(id)
   link.rel = 'noopener'
   document.body.appendChild(link)
   link.click()
   link.remove()
+}
+
+export function getFileUrl(id, inline = false) {
+  return `${API_URL}/api/files/${encodeURIComponent(id)}/download${inline ? '?inline=1' : ''}`
 }
 
 export function uploadFile(file, folderId = null, onProgress = () => {}) {

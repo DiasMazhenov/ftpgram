@@ -136,11 +136,18 @@ app.get('/api/files/:id/download', async (req, res) => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), 'ftpgram-download-'))
     const tempPath = path.join(tempDir, 'download')
     await downloadTelegramFile(file, tempPath)
-    res.download(tempPath, file.name, async error => {
+    const cleanup = async error => {
       await rm(tempDir, { recursive: true, force: true })
       tempDir = null
       if (error && !res.headersSent) res.status(500).json({ error: error.message })
-    })
+    }
+
+    if (req.query.inline === '1') {
+      res.type(file.mime_type || 'application/octet-stream')
+      res.sendFile(tempPath, cleanup)
+    } else {
+      res.download(tempPath, file.name, cleanup)
+    }
   } catch (err) {
     if (tempDir) await rm(tempDir, { recursive: true, force: true })
     res.status(500).json({ error: err.message })

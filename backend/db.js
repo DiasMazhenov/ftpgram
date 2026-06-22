@@ -15,7 +15,8 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       parent_id TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now')),
+      modified_at TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS files (
@@ -28,6 +29,8 @@ export function initDatabase() {
       telegram_chat_id INTEGER,
       telegram_source TEXT DEFAULT 'storage',
       created_at TEXT DEFAULT (datetime('now')),
+      modified_at TEXT DEFAULT (datetime('now')),
+      source_created_at TEXT,
       FOREIGN KEY (folder_id) REFERENCES folders(id)
     );
 
@@ -44,6 +47,17 @@ export function initDatabase() {
   const fileColumns = db.prepare('PRAGMA table_info(files)').all()
   if (!fileColumns.some(column => column.name === 'telegram_source')) {
     db.exec("ALTER TABLE files ADD COLUMN telegram_source TEXT DEFAULT 'storage'")
+  }
+  if (!fileColumns.some(column => column.name === 'modified_at')) {
+    db.exec("ALTER TABLE files ADD COLUMN modified_at TEXT; UPDATE files SET modified_at = datetime('now')")
+  }
+  if (!fileColumns.some(column => column.name === 'source_created_at')) {
+    db.exec('ALTER TABLE files ADD COLUMN source_created_at TEXT')
+  }
+
+  const folderColumns = db.prepare('PRAGMA table_info(folders)').all()
+  if (!folderColumns.some(column => column.name === 'modified_at')) {
+    db.exec("ALTER TABLE folders ADD COLUMN modified_at TEXT; UPDATE folders SET modified_at = datetime('now')")
   }
 
   db.prepare(`
@@ -74,13 +88,29 @@ export function getDatabase() {
 export function getFileTree(folderId = null) {
   if (folderId) {
     const folders = db.prepare(`
-      SELECT id, name, 'folder' as type, NULL as size
+      SELECT
+        id,
+        name,
+        'folder' as type,
+        NULL as size,
+        'folder' as mime_type,
+        created_at as date_added,
+        modified_at as date_modified,
+        created_at as date_created
       FROM folders WHERE parent_id = ?
       ORDER BY name
     `).all(folderId)
 
     const files = db.prepare(`
-      SELECT id, name, 'file' as type, size
+      SELECT
+        id,
+        name,
+        'file' as type,
+        size,
+        mime_type,
+        created_at as date_added,
+        modified_at as date_modified,
+        COALESCE(source_created_at, created_at) as date_created
       FROM files WHERE folder_id = ?
       ORDER BY name
     `).all(folderId)
@@ -89,13 +119,29 @@ export function getFileTree(folderId = null) {
   }
 
   const folders = db.prepare(`
-    SELECT id, name, 'folder' as type, NULL as size
+    SELECT
+      id,
+      name,
+      'folder' as type,
+      NULL as size,
+      'folder' as mime_type,
+      created_at as date_added,
+      modified_at as date_modified,
+      created_at as date_created
     FROM folders WHERE parent_id IS NULL
     ORDER BY name
   `).all()
 
   const files = db.prepare(`
-    SELECT id, name, 'file' as type, size
+    SELECT
+      id,
+      name,
+      'file' as type,
+      size,
+      mime_type,
+      created_at as date_added,
+      modified_at as date_modified,
+      COALESCE(source_created_at, created_at) as date_created
     FROM files WHERE folder_id IS NULL
     ORDER BY name
   `).all()
@@ -118,8 +164,12 @@ export function getAllFolders() {
 
 export function insertFolder(id, name, parentId = null) {
   return db.prepare(`
-    INSERT OR REPLACE INTO folders (id, name, parent_id)
+    INSERT INTO folders (id, name, parent_id)
     VALUES (?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      parent_id = excluded.parent_id,
+      modified_at = datetime('now')
   `).run(id, name, parentId)
 }
 
@@ -131,21 +181,29 @@ export function createFolder(name, parentId = null) {
 
 export function renameFolder(id, name) {
   if (SYSTEM_FOLDER_IDS.has(id)) throw new Error('Системную папку нельзя переименовать')
-  return db.prepare('UPDATE folders SET name = ? WHERE id = ?').run(name.trim(), id)
+  return db.prepare(`
+    UPDATE folders SET name = ?, modified_at = datetime('now') WHERE id = ?
+  `).run(name.trim(), id)
 }
 
 export function renameFile(id, name) {
-  return db.prepare('UPDATE files SET name = ? WHERE id = ?').run(name.trim(), id)
+  return db.prepare(`
+    UPDATE files SET name = ?, modified_at = datetime('now') WHERE id = ?
+  `).run(name.trim(), id)
 }
 
 export function moveFolder(id, parentId = null) {
   if (SYSTEM_FOLDER_IDS.has(id)) throw new Error('Системную папку нельзя перемещать')
   if (id === parentId) throw new Error('Папку нельзя переместить внутрь самой себя')
-  return db.prepare('UPDATE folders SET parent_id = ? WHERE id = ?').run(parentId, id)
+  return db.prepare(`
+    UPDATE folders SET parent_id = ?, modified_at = datetime('now') WHERE id = ?
+  `).run(parentId, id)
 }
 
 export function moveFile(id, folderId = null) {
-  return db.prepare('UPDATE files SET folder_id = ? WHERE id = ?').run(folderId, id)
+  return db.prepare(`
+    UPDATE files SET folder_id = ?, modified_at = datetime('now') WHERE id = ?
+  `).run(folderId, id)
 }
 
 export function deleteFolder(id) {
@@ -177,13 +235,24 @@ export function getFolderFiles(id) {
   `).all(id)
 }
 
-export function insertFile(id, name, folderId = null, size = 0, mimeType = null, msgId = null, chatId = null, source = 'storage') {
+export function insertFile(
+  id,
+  name,
+  folderId = null,
+  size = 0,
+  mimeType = null,
+  msgId = null,
+  chatId = null,
+  source = 'storage',
+  sourceCreatedAt = null
+) {
   return db.prepare(`
     INSERT OR REPLACE INTO files (
-      id, name, folder_id, size, mime_type, telegram_message_id, telegram_chat_id, telegram_source
+      id, name, folder_id, size, mime_type, telegram_message_id, telegram_chat_id,
+      telegram_source, source_created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, folderId, size, mimeType, msgId, chatId, source)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name, folderId, size, mimeType, msgId, chatId, source, sourceCreatedAt)
 }
 
 export function upsertIndexedFile(
@@ -194,20 +263,39 @@ export function upsertIndexedFile(
   msgId = null,
   chatId = null,
   folderId = null,
-  source = 'storage'
+  source = 'storage',
+  sourceCreatedAt = null,
+  sourceModifiedAt = null
 ) {
   return db.prepare(`
     INSERT INTO files (
-      id, name, folder_id, size, mime_type, telegram_message_id, telegram_chat_id, telegram_source
+      id, name, folder_id, size, mime_type, telegram_message_id, telegram_chat_id,
+      telegram_source, source_created_at, modified_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
     ON CONFLICT(id) DO UPDATE SET
       size = excluded.size,
       mime_type = excluded.mime_type,
       telegram_message_id = excluded.telegram_message_id,
       telegram_chat_id = excluded.telegram_chat_id,
-      telegram_source = excluded.telegram_source
-  `).run(id, name, folderId, size, mimeType, msgId, chatId, source)
+      telegram_source = excluded.telegram_source,
+      source_created_at = COALESCE(files.source_created_at, excluded.source_created_at),
+      modified_at = CASE
+        WHEN datetime(excluded.modified_at) > datetime(files.modified_at) THEN excluded.modified_at
+        ELSE files.modified_at
+      END
+  `).run(
+    id,
+    name,
+    folderId,
+    size,
+    mimeType,
+    msgId,
+    chatId,
+    source,
+    sourceCreatedAt,
+    sourceModifiedAt
+  )
 }
 
 export function removeMissingIndexedFiles(source, messageIds) {

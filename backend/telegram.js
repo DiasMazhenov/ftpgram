@@ -160,9 +160,16 @@ export async function uploadFile(filePath, name, size, mimeType, folderId = null
   })
   const id = `${source}_msg_${message.id}`
   const chatId = Number(entity?.id || 0) || null
+  const sourceCreatedAt = normalizeTelegramDate(message.date) || new Date().toISOString()
 
-  insertFile(id, name, targetFolderId, size, mimeType, message.id, chatId, source)
+  insertFile(id, name, targetFolderId, size, mimeType, message.id, chatId, source, sourceCreatedAt)
   return { id, name, size, mime_type: mimeType, folder_id: targetFolderId, type: 'file' }
+}
+
+function normalizeTelegramDate(value) {
+  if (!value) return null
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
 function indexMessages(messages, entity, { prefix, folderId, source }) {
@@ -182,7 +189,9 @@ function indexMessages(messages, entity, { prefix, folderId, source }) {
       msg.id,
       Number(entity?.id || 0) || null,
       folderId,
-      source
+      source,
+      normalizeTelegramDate(msg.date),
+      normalizeTelegramDate(msg.editDate || msg.date)
     )
     count++
   }
