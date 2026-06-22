@@ -29,6 +29,7 @@ import {
   uploadFile
 } from '../api'
 import { useApp } from '../AppContext'
+import { FilePreview } from './FilePreview'
 
 export const FileExplorer = () => {
   const [items, setItems] = useState([])
@@ -43,8 +44,10 @@ export const FileExplorer = () => {
   const [viewMode, setViewMode] = useState('icons')
   const [sortBy, setSortBy] = useState('name')
   const [sortDescending, setSortDescending] = useState(false)
+  const [previewFile, setPreviewFile] = useState(null)
   const fileInputRef = useRef(null)
   const dragDepth = useRef(0)
+  const longPressTriggered = useRef(false)
   const { setUploadProgress, loadStats } = useApp()
   const isSystemFolder = (item) => ['telegram_saved_messages', 'telegram_storage'].includes(item?.id)
 
@@ -191,6 +194,11 @@ export const FileExplorer = () => {
     downloadItem(item.id)
   }
 
+  const previewAction = (item) => {
+    closeMenu()
+    setPreviewFile(item)
+  }
+
   const moveAction = async (item) => {
     closeMenu()
     try {
@@ -216,13 +224,35 @@ export const FileExplorer = () => {
   const startLongPress = (event, item = null) => {
     const touch = event.touches[0]
     const point = { clientX: touch.clientX, clientY: touch.clientY }
-    const timer = window.setTimeout(() => openMenu(point, item), 550)
+    longPressTriggered.current = false
+    const timer = window.setTimeout(() => {
+      longPressTriggered.current = true
+      openMenu(point, item)
+    }, 550)
     setTouchTimer(timer)
   }
 
   const cancelLongPress = () => {
     if (touchTimer) window.clearTimeout(touchTimer)
     setTouchTimer(null)
+  }
+
+  const consumeLongPress = () => {
+    if (!longPressTriggered.current) return false
+    longPressTriggered.current = false
+    return true
+  }
+
+  const handleFolderItemClick = (event, folder) => {
+    event.stopPropagation()
+    if (consumeLongPress()) return
+    handleFolderClick(folder)
+  }
+
+  const handleFileItemClick = (event, file) => {
+    event.stopPropagation()
+    if (consumeLongPress()) return
+    previewAction(file)
   }
 
   const formatSize = (size) => {
@@ -281,7 +311,16 @@ export const FileExplorer = () => {
   const ViewIcon = viewMode === 'table' ? List : viewMode === 'gallery' ? Images : LayoutGrid
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden bg-bg-main" onClick={closeMenu}>
+    <div
+      className="relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden bg-bg-main"
+      onClick={(event) => {
+        if (consumeLongPress()) {
+          event.stopPropagation()
+          return
+        }
+        closeMenu()
+      }}
+    >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg-main">
         <div className="flex items-center justify-between gap-3 border-b border-gray-800 px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -394,9 +433,7 @@ export const FileExplorer = () => {
 
         <div
           className={`relative flex-1 overflow-y-auto p-4 scrollbar-thin ${isDragging ? 'bg-blue-500/5' : ''}`}
-          onClick={(event) => {
-            if (!event.target.closest('[data-drive-item]')) openMenu(event)
-          }}
+          onClick={closeMenu}
           onContextMenu={(event) => openMenu(event)}
           onTouchStart={(event) => {
             if (event.target === event.currentTarget) startLongPress(event)
@@ -461,10 +498,9 @@ export const FileExplorer = () => {
                     data-drive-item
                     className="grid min-h-12 cursor-pointer grid-cols-[minmax(180px,1fr)_110px_90px_120px] items-center gap-3 border-b border-gray-800 px-4 py-2 text-sm last:border-b-0 hover:bg-bg-hover max-md:grid-cols-[minmax(160px,1fr)_90px]"
                     onClick={(event) => {
-                      event.stopPropagation()
-                      if (item.type === 'folder') handleFolderClick(item)
+                      if (item.type === 'folder') handleFolderItemClick(event, item)
+                      else handleFileItemClick(event, item)
                     }}
-                    onDoubleClick={() => item.type === 'file' && downloadAction(item)}
                     onContextMenu={(event) => openMenu(event, item)}
                     onTouchStart={(event) => startLongPress(event, item)}
                     onTouchEnd={cancelLongPress}
@@ -493,10 +529,7 @@ export const FileExplorer = () => {
                     key={folder.id}
                     data-drive-item
                     className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-gray-800 bg-bg-card hover:border-gray-700 hover:bg-bg-hover"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleFolderClick(folder)
-                    }}
+                    onClick={(event) => handleFolderItemClick(event, folder)}
                     onContextMenu={(event) => openMenu(event, folder)}
                     onTouchStart={(event) => startLongPress(event, folder)}
                     onTouchEnd={cancelLongPress}
@@ -515,8 +548,7 @@ export const FileExplorer = () => {
                     key={file.id}
                     data-drive-item
                     className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-gray-800 bg-bg-card hover:border-gray-700 hover:bg-bg-hover"
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={() => downloadAction(file)}
+                    onClick={(event) => handleFileItemClick(event, file)}
                     onContextMenu={(event) => openMenu(event, file)}
                     onTouchStart={(event) => startLongPress(event, file)}
                     onTouchEnd={cancelLongPress}
@@ -548,10 +580,7 @@ export const FileExplorer = () => {
                     key={folder.id}
                     data-drive-item
                     className="min-w-0 cursor-pointer rounded-lg border border-transparent bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleFolderClick(folder)
-                    }}
+                    onClick={(event) => handleFolderItemClick(event, folder)}
                     onContextMenu={(event) => openMenu(event, folder)}
                     onTouchStart={(event) => startLongPress(event, folder)}
                     onTouchEnd={cancelLongPress}
@@ -568,8 +597,7 @@ export const FileExplorer = () => {
                     key={file.id}
                     data-drive-item
                     className="min-w-0 cursor-pointer rounded-lg border border-transparent bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover"
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={() => downloadAction(file)}
+                    onClick={(event) => handleFileItemClick(event, file)}
                     onContextMenu={(event) => openMenu(event, file)}
                     onTouchStart={(event) => startLongPress(event, file)}
                     onTouchEnd={cancelLongPress}
@@ -672,6 +700,10 @@ export const FileExplorer = () => {
             </>
           )}
         </div>
+      )}
+
+      {previewFile && (
+        <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
       )}
     </div>
   )
