@@ -3,6 +3,8 @@ import crypto from 'crypto'
 
 let db
 export const SAVED_MESSAGES_FOLDER_ID = 'telegram_saved_messages'
+export const STORAGE_FOLDER_ID = 'telegram_storage'
+const SYSTEM_FOLDER_IDS = new Set([SAVED_MESSAGES_FOLDER_ID, STORAGE_FOLDER_ID])
 
 export function initDatabase() {
   const dbPath = process.env.DB_PATH || './ftpgram.db'
@@ -46,9 +48,20 @@ export function initDatabase() {
 
   db.prepare(`
     INSERT INTO folders (id, name, parent_id)
-    VALUES (?, 'Избранное', NULL)
+    VALUES (?, ?, NULL)
     ON CONFLICT(id) DO UPDATE SET name = excluded.name, parent_id = NULL
-  `).run(SAVED_MESSAGES_FOLDER_ID)
+  `).run(SAVED_MESSAGES_FOLDER_ID, 'Избранное')
+  db.prepare(`
+    INSERT INTO folders (id, name, parent_id)
+    VALUES (?, ?, NULL)
+    ON CONFLICT(id) DO UPDATE SET name = excluded.name, parent_id = NULL
+  `).run(STORAGE_FOLDER_ID, 'FTPgram Storage')
+
+  db.prepare(`
+    UPDATE files
+    SET folder_id = ?
+    WHERE telegram_source = 'storage' AND folder_id IS NULL
+  `).run(STORAGE_FOLDER_ID)
 
   console.log('✅ Таблицы созданы')
   return db
@@ -117,7 +130,7 @@ export function createFolder(name, parentId = null) {
 }
 
 export function renameFolder(id, name) {
-  if (id === SAVED_MESSAGES_FOLDER_ID) throw new Error('Системную папку нельзя переименовать')
+  if (SYSTEM_FOLDER_IDS.has(id)) throw new Error('Системную папку нельзя переименовать')
   return db.prepare('UPDATE folders SET name = ? WHERE id = ?').run(name.trim(), id)
 }
 
@@ -126,7 +139,7 @@ export function renameFile(id, name) {
 }
 
 export function moveFolder(id, parentId = null) {
-  if (id === SAVED_MESSAGES_FOLDER_ID) throw new Error('Системную папку нельзя перемещать')
+  if (SYSTEM_FOLDER_IDS.has(id)) throw new Error('Системную папку нельзя перемещать')
   if (id === parentId) throw new Error('Папку нельзя переместить внутрь самой себя')
   return db.prepare('UPDATE folders SET parent_id = ? WHERE id = ?').run(parentId, id)
 }
@@ -136,7 +149,7 @@ export function moveFile(id, folderId = null) {
 }
 
 export function deleteFolder(id) {
-  if (id === SAVED_MESSAGES_FOLDER_ID) throw new Error('Системную папку нельзя удалить')
+  if (SYSTEM_FOLDER_IDS.has(id)) throw new Error('Системную папку нельзя удалить')
   const childFolders = db.prepare('SELECT id FROM folders WHERE parent_id = ?').all(id)
   for (const folder of childFolders) deleteFolder(folder.id)
 
@@ -195,6 +208,19 @@ export function upsertIndexedFile(
       telegram_chat_id = excluded.telegram_chat_id,
       telegram_source = excluded.telegram_source
   `).run(id, name, folderId, size, mimeType, msgId, chatId, source)
+}
+
+export function removeMissingIndexedFiles(source, messageIds) {
+  if (!messageIds.length) {
+    return db.prepare('DELETE FROM files WHERE telegram_source = ?').run(source)
+  }
+
+  const placeholders = messageIds.map(() => '?').join(', ')
+  return db.prepare(`
+    DELETE FROM files
+    WHERE telegram_source = ?
+      AND telegram_message_id NOT IN (${placeholders})
+  `).run(source, ...messageIds)
 }
 
 export function clearDatabase() {

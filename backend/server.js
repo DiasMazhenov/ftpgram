@@ -12,6 +12,7 @@ import {
   getFileTree,
   getFileById,
   SAVED_MESSAGES_FOLDER_ID,
+  STORAGE_FOLDER_ID,
   getAllFolders,
   getFolderFiles,
   createFolder,
@@ -30,6 +31,7 @@ import {
   autoConnect,
   reindex,
   deleteTelegramFiles,
+  downloadTelegramFile,
   uploadFile
 } from './telegram.js'
 
@@ -125,6 +127,26 @@ app.post('/api/files/upload', async (req, res) => {
   }
 })
 
+app.get('/api/files/:id/download', async (req, res) => {
+  let tempDir
+  try {
+    const file = getFileById(req.params.id)
+    if (!file?.telegram_message_id) return res.status(404).json({ error: 'Файл не найден' })
+
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'ftpgram-download-'))
+    const tempPath = path.join(tempDir, 'download')
+    await downloadTelegramFile(file, tempPath)
+    res.download(tempPath, file.name, async error => {
+      await rm(tempDir, { recursive: true, force: true })
+      tempDir = null
+      if (error && !res.headersSent) res.status(500).json({ error: error.message })
+    })
+  } catch (err) {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true })
+    res.status(500).json({ error: err.message })
+  }
+})
+
 app.get('/api/folders', (req, res) => {
   res.json(getAllFolders())
 })
@@ -148,7 +170,7 @@ app.patch('/api/folders/:id', (req, res) => {
 
 app.delete('/api/folders/:id', async (req, res) => {
   try {
-    if (req.params.id === SAVED_MESSAGES_FOLDER_ID) {
+    if ([SAVED_MESSAGES_FOLDER_ID, STORAGE_FOLDER_ID].includes(req.params.id)) {
       return res.status(400).json({ error: 'Системную папку нельзя удалить' })
     }
     const files = getFolderFiles(req.params.id)

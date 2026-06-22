@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { ArrowLeft, Edit3, File, Folder, FolderPlus, MoveRight, Trash2, Upload } from 'lucide-react'
-import { createFolder, deleteItem, fetchFiles, fetchFolders, moveItem, renameItem, uploadFile } from '../api'
+import { ArrowLeft, Download, Edit3, File, Folder, FolderPlus, MoveRight, Trash2, Upload } from 'lucide-react'
+import {
+  createFolder,
+  deleteItem,
+  downloadItem,
+  fetchFiles,
+  fetchFolders,
+  moveItem,
+  renameItem,
+  uploadFile
+} from '../api'
 import { useApp } from '../AppContext'
 
 export const FileExplorer = () => {
@@ -15,7 +24,7 @@ export const FileExplorer = () => {
   const fileInputRef = useRef(null)
   const dragDepth = useRef(0)
   const { setUploadProgress, loadStats } = useApp()
-  const isSystemFolder = (item) => item?.id === 'telegram_saved_messages'
+  const isSystemFolder = (item) => ['telegram_saved_messages', 'telegram_storage'].includes(item?.id)
 
   const loadFiles = useCallback(async (folderId = null) => {
     setLoading(true)
@@ -111,7 +120,7 @@ export const FileExplorer = () => {
     const point = event.touches?.[0] || event
     setMenu({
       x: Math.min(point.clientX, window.innerWidth - 240),
-      y: Math.min(point.clientY, window.innerHeight - 190),
+      y: Math.min(point.clientY, window.innerHeight - 280),
       item
     })
   }
@@ -153,6 +162,11 @@ export const FileExplorer = () => {
     } catch (error) {
       window.alert(error.message)
     }
+  }
+
+  const downloadAction = (item) => {
+    closeMenu()
+    downloadItem(item.id)
   }
 
   const moveAction = async (item) => {
@@ -253,7 +267,9 @@ export const FileExplorer = () => {
               <div className="text-center text-blue-200">
                 <Upload size={44} className="mx-auto mb-3" />
                 <p className="font-medium">Отпусти файлы для загрузки</p>
-                <p className="mt-1 text-xs text-gray-400">{currentFolder ? `В папку «${folderName}»` : 'В корень диска'}</p>
+                <p className="mt-1 text-xs text-gray-400">
+                  {currentFolder ? `В папку «${folderName}»` : 'В FTPgram Storage'}
+                </p>
               </div>
             </div>
           )}
@@ -308,6 +324,7 @@ export const FileExplorer = () => {
                   data-drive-item
                   className="min-w-0 cursor-pointer rounded-lg border border-transparent bg-bg-card p-4 transition-all hover:border-gray-700 hover:bg-bg-hover"
                   onClick={(event) => event.stopPropagation()}
+                  onDoubleClick={() => downloadAction(file)}
                   onContextMenu={(event) => openMenu(event, file)}
                   onTouchStart={(event) => startLongPress(event, file)}
                   onTouchEnd={cancelLongPress}
@@ -363,6 +380,16 @@ export const FileExplorer = () => {
             <Upload size={16} />
             Загрузить файлы
           </button>
+
+          {menu.item?.type === 'file' && (
+            <button
+              className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
+              onClick={() => downloadAction(menu.item)}
+            >
+              <Download size={16} />
+              Скачать
+            </button>
+          )}
 
           {menu.item && !isSystemFolder(menu.item) && (
             <>

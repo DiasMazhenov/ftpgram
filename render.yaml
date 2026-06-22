@@ -14,6 +14,6 @@ services:
       - key: TELEGRAM_STORAGE_CHAT
         sync: false
       - key: TELEGRAM_INDEX_LIMIT
-        value: 100
+        value: 0
       - key: DB_PATH
         value: /tmp/ftpgram.db

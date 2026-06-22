@@ -64,6 +64,15 @@ export function moveItem(type, id, folderId = null) {
   })
 }
 
+export function downloadItem(id) {
+  const link = document.createElement('a')
+  link.href = `${API_URL}/api/files/${encodeURIComponent(id)}/download`
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
 export function uploadFile(file, folderId = null, onProgress = () => {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()

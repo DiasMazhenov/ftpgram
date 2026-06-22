@@ -3,8 +3,10 @@ import { StringSession } from 'telegram/sessions/index.js'
 import { CustomFile } from 'telegram/client/uploads.js'
 import {
   SAVED_MESSAGES_FOLDER_ID,
+  STORAGE_FOLDER_ID,
   cleanupLegacyChatFolders,
   insertFile,
+  removeMissingIndexedFiles,
   upsertIndexedFile
 } from './db.js'
 
@@ -148,6 +150,7 @@ export async function uploadFile(filePath, name, size, mimeType, folderId = null
   if (!client || !connected) throw new Error('Нет подключения к Telegram')
 
   const source = folderId === SAVED_MESSAGES_FOLDER_ID ? 'saved' : 'storage'
+  const targetFolderId = folderId || STORAGE_FOLDER_ID
   const entity = source === 'saved'
     ? await client.getEntity('me')
     : await getStorageEntity(process.env.TELEGRAM_STORAGE_CHAT || DEFAULT_STORAGE_CHAT)
@@ -158,16 +161,18 @@ export async function uploadFile(filePath, name, size, mimeType, folderId = null
   const id = `${source}_msg_${message.id}`
   const chatId = Number(entity?.id || 0) || null
 
-  insertFile(id, name, folderId, size, mimeType, message.id, chatId, source)
-  return { id, name, size, mime_type: mimeType, folder_id: folderId, type: 'file' }
+  insertFile(id, name, targetFolderId, size, mimeType, message.id, chatId, source)
+  return { id, name, size, mime_type: mimeType, folder_id: targetFolderId, type: 'file' }
 }
 
 function indexMessages(messages, entity, { prefix, folderId, source }) {
   let count = 0
+  const messageIds = []
   for (const msg of messages) {
     if (!msg?.file) continue
 
     const file = msg.file
+    messageIds.push(msg.id)
     const id = `${prefix}_msg_${msg.id}`
     upsertIndexedFile(
       id,
@@ -181,6 +186,7 @@ function indexMessages(messages, entity, { prefix, folderId, source }) {
     )
     count++
   }
+  removeMissingIndexedFiles(source, messageIds)
   return count
 }
 
@@ -188,7 +194,7 @@ async function indexFiles() {
   console.log('📂 Индексация файлов...')
   cleanupLegacyChatFolders()
   let totalFiles = 0
-  const indexLimit = Number(process.env.TELEGRAM_INDEX_LIMIT || 100)
+  const indexLimit = 0
 
   try {
     const storageChat = process.env.TELEGRAM_STORAGE_CHAT || DEFAULT_STORAGE_CHAT
@@ -197,7 +203,7 @@ async function indexFiles() {
 
     totalFiles += indexMessages(storageMessages, storageEntity, {
       prefix: 'storage',
-      folderId: null,
+      folderId: STORAGE_FOLDER_ID,
       source: 'storage'
     })
   } catch (err) {
@@ -217,6 +223,21 @@ async function indexFiles() {
   }
 
   console.log(`✅ Индексация Telegram Drive: ${totalFiles} файлов`)
+}
+
+export async function downloadTelegramFile(file, outputFile) {
+  if (!client || !connected) throw new Error('Нет подключения к Telegram')
+  if (!file?.telegram_message_id) throw new Error('Telegram-сообщение файла не найдено')
+
+  const entity = file.telegram_source === 'saved'
+    ? await client.getEntity('me')
+    : await getStorageEntity(process.env.TELEGRAM_STORAGE_CHAT || DEFAULT_STORAGE_CHAT)
+  const messages = await client.getMessages(entity, { ids: file.telegram_message_id })
+  const message = messages[0]
+  if (!message?.media) throw new Error('Файл больше не найден в Telegram')
+
+  await client.downloadMedia(message, { outputFile })
+  return outputFile
 }
 
 export async function disconnect() {
