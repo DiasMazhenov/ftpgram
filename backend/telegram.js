@@ -1,6 +1,6 @@
 import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions/index.js'
-import { clearDatabase, insertFolder, insertFile } from './db.js'
+import { clearDatabase, insertFile } from './db.js'
 
 let client = null
 let connected = false
@@ -108,33 +108,26 @@ async function indexFiles() {
   let totalFiles = 0
 
   try {
-    const dialogs = await client.getDialogs({ limit: 30 })
+    const storageChat = process.env.TELEGRAM_STORAGE_CHAT || 'me'
+    const indexLimit = Number(process.env.TELEGRAM_INDEX_LIMIT || 100)
+    const storageEntity = await client.getEntity(storageChat)
+    const messages = await client.getMessages(storageEntity, { limit: indexLimit })
 
-    for (const dialog of dialogs) {
-      const folderId = `chat_${dialog.id}`
-      insertFolder(folderId, dialog.name || dialog.title || `Чат ${dialog.id}`)
+    for (const msg of messages) {
+      if (!msg) continue
+      const f = msg.file
+      if (!f) continue
 
-      try {
-        const messages = await client.getMessages(dialog.entity, { limit: 50 })
+      const fileId = `storage_msg_${msg.id}`
+      const size = Number(f.size || 0)
+      const name = f.name || `file_${msg.id}`
+      const chatId = Number(storageEntity?.id || 0) || null
 
-        for (const msg of messages) {
-          if (!msg) continue
-          const f = msg.file
-          if (!f) continue
-
-          const fileId = `msg_${msg.id}_${dialog.id}`
-          const size = Number(f.size || 0)
-          const name = f.name || `file_${msg.id}`
-
-          insertFile(fileId, name, folderId, size, f.mimeType || 'unknown', msg.id, dialog.id)
-          totalFiles++
-        }
-      } catch (e) {
-        console.error(`  ⚠️ ${dialog.name}: ${e.message}`)
-      }
+      insertFile(fileId, name, null, size, f.mimeType || 'unknown', msg.id, chatId)
+      totalFiles++
     }
 
-    console.log(`✅ Индексация: ${totalFiles} файлов`)
+    console.log(`✅ Индексация ${storageChat}: ${totalFiles} файлов`)
   } catch (err) {
     console.error('❌ Ошибка индексации:', err.message)
   }

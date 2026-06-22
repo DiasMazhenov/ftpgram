@@ -37,6 +37,21 @@ npm run dev
 npm run build
 ```
 
+## Telegram storage
+
+FTPgram индексирует один Telegram storage, а не список каналов и подписок.
+
+По умолчанию используется `Saved Messages`:
+
+```bash
+TELEGRAM_STORAGE_CHAT=me
+```
+
+Для режима, похожего на Google Drive, лучше создать приватный канал, например
+`FTPgram Storage`, добавить туда аккаунт, под которым работает MTProto-сессия, и
+указать username или id канала в `TELEGRAM_STORAGE_CHAT`. Тогда все файлы будут
+храниться отдельно от личных чатов и подписок.
+
 ## Структура проекта
 
 ```

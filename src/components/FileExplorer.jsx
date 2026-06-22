@@ -48,29 +48,7 @@ export const FileExplorer = () => {
   const fileItems = items.filter(f => f.type === 'file')
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-bg-main md:flex-row">
-      <div className="flex max-h-48 min-h-0 flex-col border-b border-gray-800 bg-bg-sidebar md:max-h-none md:w-64 md:flex-shrink-0 md:border-b-0 md:border-r">
-        <div className="border-b border-gray-800 p-4">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Чаты и папки</h2>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2 scrollbar-thin">
-          {loading ? (
-            <div className="p-4 text-sm text-gray-500">Загрузка...</div>
-          ) : (
-            folders.map(folder => (
-              <div
-                key={folder.id}
-                className={`flex items-center gap-2 py-1.5 px-2 hover:bg-bg-hover cursor-pointer rounded-md ${currentFolder === folder.id ? 'bg-bg-hover' : ''}`}
-                onClick={() => handleFolderClick(folder)}
-              >
-                <Folder className="text-yellow-400" size={18} />
-                <span className="text-sm truncate">{folder.name}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-bg-main">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg-main">
         <div className="flex items-center gap-3 border-b border-gray-800 px-5 py-4">
           {currentFolder && (
@@ -79,7 +57,7 @@ export const FileExplorer = () => {
             </button>
           )}
           <h1 className="min-w-0 truncate text-lg font-semibold text-white">
-            {currentFolder ? folderName : 'Файлы из Telegram'}
+            {currentFolder ? folderName : 'Мой диск'}
           </h1>
         </div>
 
@@ -125,7 +103,7 @@ export const FileExplorer = () => {
               <div className="text-center">
                 <File size={48} className="mx-auto mb-2 opacity-50" />
                 <p>{currentFolder ? 'Папка пуста' : 'Нет файлов'}</p>
-                {!currentFolder && <p className="text-xs mt-1">Выберите чат слева</p>}
+                {!currentFolder && <p className="text-xs mt-1">Файлы появятся после загрузки в Telegram storage</p>}
               </div>
             </div>
           )}

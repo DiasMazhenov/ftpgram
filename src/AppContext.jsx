@@ -5,8 +5,8 @@ const AppContext = createContext()
 
 export const AppProvider = ({ children }) => {
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
-  const [ftpEnabled, setFtpEnabled] = useState(false)
-  const [webdavEnabled, setWebdavEnabled] = useState(false)
+  const [ftpEnabled, setFtpEnabled] = useState(true)
+  const [webdavEnabled, setWebdavEnabled] = useState(true)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [stats, setStats] = useState({ files: 0, folders: 0, totalSize: 0 })
