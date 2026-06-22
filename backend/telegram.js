@@ -1,6 +1,6 @@
 import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions/index.js'
-import { clearDatabase, insertFile } from './db.js'
+import { cleanupLegacyChatFolders, upsertIndexedFile } from './db.js'
 
 let client = null
 let connected = false
@@ -102,15 +102,36 @@ export async function reindex() {
   await indexFiles()
 }
 
+export async function deleteStorageMessages(messageIds) {
+  const ids = messageIds.filter(Boolean)
+  if (!ids.length) return
+  if (!client || !connected) throw new Error('Нет подключения к Telegram')
+
+  const storageChat = process.env.TELEGRAM_STORAGE_CHAT || 'FTPgram Storage'
+  const storageEntity = await getStorageEntity(storageChat)
+  await client.deleteMessages(storageEntity, ids, { revoke: true })
+}
+
+async function getStorageEntity(storageChat) {
+  try {
+    return await client.getEntity(storageChat)
+  } catch {
+    const dialogs = await client.getDialogs({ limit: 100 })
+    const dialog = dialogs.find(item => item.name === storageChat || item.title === storageChat)
+    if (!dialog) throw new Error(`Telegram storage "${storageChat}" не найден`)
+    return dialog.entity
+  }
+}
+
 async function indexFiles() {
   console.log('📂 Индексация файлов...')
-  clearDatabase()
+  cleanupLegacyChatFolders()
   let totalFiles = 0
 
   try {
-    const storageChat = process.env.TELEGRAM_STORAGE_CHAT || 'me'
+    const storageChat = process.env.TELEGRAM_STORAGE_CHAT || 'FTPgram Storage'
     const indexLimit = Number(process.env.TELEGRAM_INDEX_LIMIT || 100)
-    const storageEntity = await client.getEntity(storageChat)
+    const storageEntity = await getStorageEntity(storageChat)
     const messages = await client.getMessages(storageEntity, { limit: indexLimit })
 
     for (const msg of messages) {
@@ -123,7 +144,7 @@ async function indexFiles() {
       const name = f.name || `file_${msg.id}`
       const chatId = Number(storageEntity?.id || 0) || null
 
-      insertFile(fileId, name, null, size, f.mimeType || 'unknown', msg.id, chatId)
+      upsertIndexedFile(fileId, name, size, f.mimeType || 'unknown', msg.id, chatId)
       totalFiles++
     }
 

@@ -1,8 +1,22 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import { initDatabase, getDatabase, getFileTree, getFileById } from './db.js'
-import { sendCode, signIn, isConnected, disconnect, autoConnect, reindex, getTelegramClient } from './telegram.js'
+import {
+  initDatabase,
+  getDatabase,
+  getFileTree,
+  getFileById,
+  getAllFolders,
+  getFolderTelegramMessageIds,
+  createFolder,
+  deleteFile,
+  deleteFolder,
+  moveFile,
+  moveFolder,
+  renameFile,
+  renameFolder
+} from './db.js'
+import { sendCode, signIn, isConnected, disconnect, autoConnect, reindex, deleteStorageMessages } from './telegram.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -61,22 +75,66 @@ app.post('/api/reindex', async (req, res) => {
   }
 })
 
-// Отладка
-app.get('/api/debug', async (req, res) => {
-  const c = getTelegramClient()
-  if (!c) return res.json({ error: 'Нет подключения' })
+app.get('/api/folders', (req, res) => {
+  res.json(getAllFolders())
+})
+
+app.post('/api/folders', (req, res) => {
   try {
-    const dialogs = await c.getDialogs({ limit: 1 })
-    const msgs = await c.getMessages(dialogs[0].entity, { limit: 5 })
-    const sample = msgs.map(m => ({
-      id: m?.id,
-      text: m?.message?.substring(0, 40),
-      file: m?.file ? { name: m.file.name, size: m.file.size } : null
-    }))
-    res.json({ dialog: dialogs[0].name, total: msgs.length, sample })
+    const { name, parentId = null } = req.body
+    if (!name?.trim()) return res.status(400).json({ error: 'Название папки обязательно' })
+    res.status(201).json(createFolder(name, parentId))
   } catch (err) {
-    res.json({ error: err.message })
+    res.status(500).json({ error: err.message })
   }
+})
+
+app.patch('/api/folders/:id', (req, res) => {
+  const { name } = req.body
+  if (!name?.trim()) return res.status(400).json({ error: 'Название папки обязательно' })
+  renameFolder(req.params.id, name)
+  res.json(getFileById(req.params.id))
+})
+
+app.delete('/api/folders/:id', async (req, res) => {
+  try {
+    const messageIds = getFolderTelegramMessageIds(req.params.id)
+    await deleteStorageMessages(messageIds)
+    deleteFolder(req.params.id)
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.patch('/api/files/:id', (req, res) => {
+  const { name } = req.body
+  if (!name?.trim()) return res.status(400).json({ error: 'Название файла обязательно' })
+  renameFile(req.params.id, name)
+  res.json(getFileById(req.params.id))
+})
+
+app.delete('/api/files/:id', async (req, res) => {
+  try {
+    const file = getFileById(req.params.id)
+    if (!file) return res.status(404).json({ error: 'Файл не найден' })
+    await deleteStorageMessages([file.telegram_message_id])
+    deleteFile(req.params.id)
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/move', (req, res) => {
+  const { id, type, folderId = null } = req.body
+  if (!id || !type) return res.status(400).json({ error: 'id и type обязательны' })
+
+  if (type === 'folder') moveFolder(id, folderId)
+  else if (type === 'file') moveFile(id, folderId)
+  else return res.status(400).json({ error: 'Неизвестный тип элемента' })
+
+  res.json({ success: true })
 })
 
 // Инфо о файле

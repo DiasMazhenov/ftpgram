@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import path from 'path'
+import crypto from 'crypto'
 
 let db
 
@@ -29,6 +29,12 @@ export function initDatabase() {
 
     CREATE INDEX IF NOT EXISTS idx_files_folder ON files(folder_id);
     CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
+
+    DELETE FROM files
+    WHERE folder_id IN (SELECT id FROM folders WHERE id LIKE 'chat_%');
+
+    DELETE FROM folders
+    WHERE id LIKE 'chat_%';
   `)
 
   console.log('✅ Таблицы созданы')
@@ -76,11 +82,70 @@ export function getFileById(id) {
     || db.prepare('SELECT * FROM folders WHERE id = ?').get(id)
 }
 
+export function getAllFolders() {
+  return db.prepare(`
+    SELECT id, name, parent_id
+    FROM folders
+    ORDER BY name
+  `).all()
+}
+
 export function insertFolder(id, name, parentId = null) {
   return db.prepare(`
     INSERT OR REPLACE INTO folders (id, name, parent_id)
     VALUES (?, ?, ?)
   `).run(id, name, parentId)
+}
+
+export function createFolder(name, parentId = null) {
+  const id = `folder_${crypto.randomUUID()}`
+  insertFolder(id, name.trim(), parentId)
+  return getFileById(id)
+}
+
+export function renameFolder(id, name) {
+  return db.prepare('UPDATE folders SET name = ? WHERE id = ?').run(name.trim(), id)
+}
+
+export function renameFile(id, name) {
+  return db.prepare('UPDATE files SET name = ? WHERE id = ?').run(name.trim(), id)
+}
+
+export function moveFolder(id, parentId = null) {
+  if (id === parentId) throw new Error('Папку нельзя переместить внутрь самой себя')
+  return db.prepare('UPDATE folders SET parent_id = ? WHERE id = ?').run(parentId, id)
+}
+
+export function moveFile(id, folderId = null) {
+  return db.prepare('UPDATE files SET folder_id = ? WHERE id = ?').run(folderId, id)
+}
+
+export function deleteFolder(id) {
+  const childFolders = db.prepare('SELECT id FROM folders WHERE parent_id = ?').all(id)
+  for (const folder of childFolders) deleteFolder(folder.id)
+
+  db.prepare('DELETE FROM files WHERE folder_id = ?').run(id)
+  return db.prepare('DELETE FROM folders WHERE id = ?').run(id)
+}
+
+export function deleteFile(id) {
+  return db.prepare('DELETE FROM files WHERE id = ?').run(id)
+}
+
+export function getFolderTelegramMessageIds(id) {
+  return db.prepare(`
+    WITH RECURSIVE descendants(id) AS (
+      SELECT ?
+      UNION ALL
+      SELECT folders.id
+      FROM folders
+      JOIN descendants ON folders.parent_id = descendants.id
+    )
+    SELECT telegram_message_id
+    FROM files
+    WHERE folder_id IN (SELECT id FROM descendants)
+      AND telegram_message_id IS NOT NULL
+  `).all(id).map(row => row.telegram_message_id)
 }
 
 export function insertFile(id, name, folderId = null, size = 0, mimeType = null, msgId = null, chatId = null) {
@@ -90,6 +155,28 @@ export function insertFile(id, name, folderId = null, size = 0, mimeType = null,
   `).run(id, name, folderId, size, mimeType, msgId, chatId)
 }
 
+export function upsertIndexedFile(id, name, size = 0, mimeType = null, msgId = null, chatId = null) {
+  return db.prepare(`
+    INSERT INTO files (id, name, folder_id, size, mime_type, telegram_message_id, telegram_chat_id)
+    VALUES (?, ?, NULL, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      size = excluded.size,
+      mime_type = excluded.mime_type,
+      telegram_message_id = excluded.telegram_message_id,
+      telegram_chat_id = excluded.telegram_chat_id
+  `).run(id, name, size, mimeType, msgId, chatId)
+}
+
 export function clearDatabase() {
   db.exec('DELETE FROM files; DELETE FROM folders;')
+}
+
+export function cleanupLegacyChatFolders() {
+  db.exec(`
+    DELETE FROM files
+    WHERE folder_id IN (SELECT id FROM folders WHERE id LIKE 'chat_%');
+
+    DELETE FROM folders
+    WHERE id LIKE 'chat_%';
+  `)
 }
