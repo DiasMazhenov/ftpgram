@@ -13,6 +13,8 @@ services:
         sync: false
       - key: TELEGRAM_STORAGE_CHAT
         sync: false
+      - key: GOOGLE_VIEWER_SECRET
+        generateValue: true
       - key: TELEGRAM_INDEX_LIMIT
         value: 0
       - key: DB_PATH

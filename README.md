@@ -55,6 +55,13 @@ Telegram «Избранное» индексируются в отдельную
 Не добавляй реальную invite-ссылку в Git: задай её как secret environment
 variable в Render.
 
+Для открытия Word, Excel и PowerPoint через Google Docs используется
+короткоживущая подписанная ссылка. В production задай случайный secret:
+
+```bash
+GOOGLE_VIEWER_SECRET="long-random-secret"
+```
+
 ## Структура проекта
 
 ```

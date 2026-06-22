@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Download,
   Edit3,
+  ExternalLink,
   File,
   Folder,
   FolderPlus,
@@ -24,7 +25,9 @@ import {
   fetchFiles,
   fetchFolders,
   getFileUrl,
+  isOfficeFile,
   moveItem,
+  openInGoogleDocs,
   renameItem,
   uploadFile
 } from '../api'
@@ -197,6 +200,15 @@ export const FileExplorer = () => {
   const previewAction = (item) => {
     closeMenu()
     setPreviewFile(item)
+  }
+
+  const googleDocsAction = async (item) => {
+    closeMenu()
+    try {
+      await openInGoogleDocs(item.id)
+    } catch (error) {
+      window.alert(error.message)
+    }
   }
 
   const moveAction = async (item) => {
@@ -665,13 +677,24 @@ export const FileExplorer = () => {
           </button>
 
           {menu.item?.type === 'file' && (
-            <button
-              className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
-              onClick={() => downloadAction(menu.item)}
-            >
-              <Download size={16} />
-              Скачать
-            </button>
+            <>
+              {isOfficeFile(menu.item) && (
+                <button
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
+                  onClick={() => googleDocsAction(menu.item)}
+                >
+                  <ExternalLink size={16} />
+                  Открыть в Google Docs
+                </button>
+              )}
+              <button
+                className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
+                onClick={() => downloadAction(menu.item)}
+              >
+                <Download size={16} />
+                Скачать
+              </button>
+            </>
           )}
 
           {menu.item && !isSystemFolder(menu.item) && (

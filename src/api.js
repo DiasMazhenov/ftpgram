@@ -1,4 +1,5 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
 
 export async function fetchStatus() {
   const res = await fetch(`${API_URL}/api/status`)
@@ -75,6 +76,25 @@ export function downloadItem(id) {
 
 export function getFileUrl(id, inline = false) {
   return `${API_URL}/api/files/${encodeURIComponent(id)}/download${inline ? '?inline=1' : ''}`
+}
+
+export function isOfficeFile(file) {
+  const extension = file?.name?.split('.').pop()?.toLowerCase()
+  return OFFICE_EXTENSIONS.has(extension)
+}
+
+export async function openInGoogleDocs(id) {
+  const viewerWindow = window.open('about:blank', '_blank')
+  if (!viewerWindow) throw new Error('Браузер заблокировал новое окно')
+  viewerWindow.opener = null
+
+  try {
+    const data = await request(`/api/files/${encodeURIComponent(id)}/google-docs`)
+    viewerWindow.location.replace(data.url)
+  } catch (error) {
+    viewerWindow.close()
+    throw error
+  }
 }
 
 export function uploadFile(file, folderId = null, onProgress = () => {}) {

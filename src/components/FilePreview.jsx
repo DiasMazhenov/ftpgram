@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
-import { Download, File, X } from 'lucide-react'
-import { downloadItem, getFileUrl } from '../api'
+import { Download, ExternalLink, File, X } from 'lucide-react'
+import { downloadItem, getFileUrl, isOfficeFile, openInGoogleDocs } from '../api'
 
 const getPreviewType = (file) => {
   const mimeType = file.mime_type || ''
@@ -18,6 +18,15 @@ export const FilePreview = ({ file, onClose }) => {
   const dialogRef = useRef(null)
   const previewType = getPreviewType(file)
   const previewUrl = getFileUrl(file.id, true)
+  const officeFile = isOfficeFile(file)
+
+  const openGoogleDocs = async () => {
+    try {
+      await openInGoogleDocs(file.id)
+    } catch (error) {
+      window.alert(error.message)
+    }
+  }
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -44,6 +53,17 @@ export const FilePreview = ({ file, onClose }) => {
             <p className="mt-0.5 truncate text-xs text-gray-500">{file.mime_type || 'Неизвестный тип'}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {officeFile && (
+              <button
+                type="button"
+                onClick={openGoogleDocs}
+                className="flex size-9 items-center justify-center rounded-md text-gray-400 hover:bg-bg-hover hover:text-white"
+                aria-label="Открыть через Google Docs"
+                title="Открыть через Google Docs"
+              >
+                <ExternalLink size={18} />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => downloadItem(file.id)}
@@ -99,15 +119,31 @@ export const FilePreview = ({ file, onClose }) => {
             <div className="max-w-sm text-center">
               <File size={56} className="mx-auto text-gray-500" />
               <p className="mt-4 text-sm font-medium text-gray-200">Предпросмотр недоступен</p>
-              <p className="mt-1 text-pretty text-xs text-gray-500">Скачай файл, чтобы открыть его на компьютере.</p>
-              <button
-                type="button"
-                onClick={() => downloadItem(file.id)}
-                className="mt-4 inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-500"
-              >
-                <Download size={16} />
-                Скачать
-              </button>
+              <p className="mt-1 text-pretty text-xs text-gray-500">
+                {officeFile
+                  ? 'Файл можно открыть через Google Docs или скачать.'
+                  : 'Скачай файл, чтобы открыть его на компьютере.'}
+              </p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {officeFile && (
+                  <button
+                    type="button"
+                    onClick={openGoogleDocs}
+                    className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-500"
+                  >
+                    <ExternalLink size={16} />
+                    Google Docs
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => downloadItem(file.id)}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-gray-700 px-3 text-sm font-medium text-gray-200 hover:bg-bg-hover"
+                >
+                  <Download size={16} />
+                  Скачать
+                </button>
+              </div>
             </div>
           )}
         </div>

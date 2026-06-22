@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import crypto from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import os from 'node:os'
@@ -37,9 +38,43 @@ import {
 
 const app = express()
 const PORT = process.env.PORT || 4000
+const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
 
 app.use(cors())
 app.use(express.json())
+
+function isOfficeFile(file) {
+  const extension = file?.name?.split('.').pop()?.toLowerCase()
+  return OFFICE_EXTENSIONS.has(extension)
+}
+
+function getViewerSecret() {
+  return process.env.GOOGLE_VIEWER_SECRET
+    || process.env.TELEGRAM_SESSION
+    || process.env.TELEGRAM_API_HASH
+    || 'ftpgram-local-viewer-secret'
+}
+
+function signPublicFile(id, expires) {
+  return crypto
+    .createHmac('sha256', getViewerSecret())
+    .update(`${id}.${expires}`)
+    .digest('hex')
+}
+
+function isValidSignature(id, expires, signature) {
+  if (!expires || !signature || Number(expires) < Date.now()) return false
+  const expected = signPublicFile(id, expires)
+  const received = String(signature)
+  if (received.length !== expected.length) return false
+  return crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected))
+}
+
+function getPublicBaseUrl(req) {
+  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/$/, '')
+  const protocol = req.get('x-forwarded-proto') || req.protocol
+  return `${protocol}://${req.get('host')}`
+}
 
 // Статус
 app.get('/api/status', (req, res) => {
@@ -148,6 +183,50 @@ app.get('/api/files/:id/download', async (req, res) => {
     } else {
       res.download(tempPath, file.name, cleanup)
     }
+  } catch (err) {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true })
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get('/api/files/:id/google-docs', (req, res) => {
+  const file = getFileById(req.params.id)
+  if (!file?.telegram_message_id) return res.status(404).json({ error: 'Файл не найден' })
+  if (!isOfficeFile(file)) return res.status(400).json({ error: 'Этот формат не поддерживается Google Docs' })
+
+  const expires = Date.now() + 5 * 60 * 1000
+  const signature = signPublicFile(file.id, expires)
+  const publicUrl = new URL(`/api/public/files/${encodeURIComponent(file.id)}`, getPublicBaseUrl(req))
+  publicUrl.searchParams.set('expires', String(expires))
+  publicUrl.searchParams.set('signature', signature)
+
+  const viewerUrl = new URL('https://docs.google.com/gview')
+  viewerUrl.searchParams.set('url', publicUrl.toString())
+  res.json({ url: viewerUrl.toString(), expires })
+})
+
+app.get('/api/public/files/:id', async (req, res) => {
+  let tempDir
+  try {
+    if (!isValidSignature(req.params.id, req.query.expires, req.query.signature)) {
+      return res.status(403).json({ error: 'Ссылка недействительна или устарела' })
+    }
+
+    const file = getFileById(req.params.id)
+    if (!file?.telegram_message_id || !isOfficeFile(file)) {
+      return res.status(404).json({ error: 'Файл не найден' })
+    }
+
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'ftpgram-google-viewer-'))
+    const tempPath = path.join(tempDir, file.name)
+    await downloadTelegramFile(file, tempPath)
+    res.type(file.mime_type || 'application/octet-stream')
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+    res.sendFile(tempPath, async error => {
+      await rm(tempDir, { recursive: true, force: true })
+      tempDir = null
+      if (error && !res.headersSent) res.status(500).json({ error: error.message })
+    })
   } catch (err) {
     if (tempDir) await rm(tempDir, { recursive: true, force: true })
     res.status(500).json({ error: err.message })
