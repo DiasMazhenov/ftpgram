@@ -63,3 +63,31 @@ export function moveItem(type, id, folderId = null) {
     body: JSON.stringify({ type, id, folderId })
   })
 }
+
+export function uploadFile(file, folderId = null, onProgress = () => {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_URL}/api/files/upload`)
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+    xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name))
+    if (folderId) xhr.setRequestHeader('X-Folder-Id', folderId)
+
+    xhr.upload.addEventListener('progress', event => {
+      if (event.lengthComputable) onProgress(event.loaded / event.total)
+    })
+
+    xhr.addEventListener('load', () => {
+      let data = {}
+      try {
+        data = JSON.parse(xhr.responseText || '{}')
+      } catch {
+        reject(new Error(`Загрузка: ${xhr.status}`))
+        return
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data)
+      else reject(new Error(data.error || `Загрузка: ${xhr.status}`))
+    })
+    xhr.addEventListener('error', () => reject(new Error('Не удалось загрузить файл')))
+    xhr.send(file)
+  })
+}

@@ -58,6 +58,8 @@ export const AppProvider = ({ children }) => {
         uploadProgress,
         downloadProgress,
         stats,
+        setUploadProgress,
+        loadStats,
         checkStatus,
         toggleFtp,
         toggleWebdav

@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { ArrowLeft, Edit3, File, Folder, FolderPlus, MoveRight, Trash2 } from 'lucide-react'
-import { createFolder, deleteItem, fetchFiles, fetchFolders, moveItem, renameItem } from '../api'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { ArrowLeft, Edit3, File, Folder, FolderPlus, MoveRight, Trash2, Upload } from 'lucide-react'
+import { createFolder, deleteItem, fetchFiles, fetchFolders, moveItem, renameItem, uploadFile } from '../api'
+import { useApp } from '../AppContext'
 
 export const FileExplorer = () => {
   const [items, setItems] = useState([])
@@ -9,6 +10,12 @@ export const FileExplorer = () => {
   const [folderName, setFolderName] = useState('')
   const [menu, setMenu] = useState(null)
   const [touchTimer, setTouchTimer] = useState(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [uploading, setUploading] = useState(null)
+  const fileInputRef = useRef(null)
+  const dragDepth = useRef(0)
+  const { setUploadProgress, loadStats } = useApp()
+  const isSystemFolder = (item) => item?.id === 'telegram_saved_messages'
 
   const loadFiles = useCallback(async (folderId = null) => {
     setLoading(true)
@@ -39,6 +46,64 @@ export const FileExplorer = () => {
   }
 
   const refresh = () => loadFiles(currentFolder)
+
+  const uploadFiles = async (fileList) => {
+    const files = Array.from(fileList || [])
+    if (!files.length || uploading) return
+
+    closeMenu()
+    setUploading({ current: 0, total: files.length, name: files[0].name, progress: 0 })
+    try {
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index]
+        setUploading({ current: index + 1, total: files.length, name: file.name, progress: 0 })
+        await uploadFile(file, currentFolder, fileProgress => {
+          const totalProgress = ((index + fileProgress) / files.length) * 100
+          setUploadProgress(Math.round(totalProgress))
+          setUploading({
+            current: index + 1,
+            total: files.length,
+            name: file.name,
+            progress: Math.round(fileProgress * 100)
+          })
+        })
+      }
+      await Promise.all([refresh(), loadStats()])
+    } catch (error) {
+      window.alert(error.message)
+    } finally {
+      setUploading(null)
+      setUploadProgress(0)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const openFilePicker = () => {
+    closeMenu()
+    fileInputRef.current?.click()
+  }
+
+  const handleDragEnter = (event) => {
+    event.preventDefault()
+    dragDepth.current += 1
+    if (event.dataTransfer?.types.includes('Files')) setIsDragging(true)
+  }
+
+  const handleDragLeave = (event) => {
+    event.preventDefault()
+    dragDepth.current -= 1
+    if (dragDepth.current <= 0) {
+      dragDepth.current = 0
+      setIsDragging(false)
+    }
+  }
+
+  const handleDrop = (event) => {
+    event.preventDefault()
+    dragDepth.current = 0
+    setIsDragging(false)
+    uploadFiles(event.dataTransfer.files)
+  }
 
   const openMenu = (event, item = null) => {
     event.preventDefault?.()
@@ -138,19 +203,29 @@ export const FileExplorer = () => {
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-bg-main" onClick={closeMenu}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg-main">
-        <div className="flex items-center gap-3 border-b border-gray-800 px-5 py-4">
-          {currentFolder && (
-            <button onClick={handleBack} className="rounded-md p-1 hover:bg-bg-hover">
-              <ArrowLeft size={20} className="text-gray-400" />
-            </button>
-          )}
-          <h1 className="min-w-0 truncate text-lg font-semibold text-white">
-            {currentFolder ? folderName : 'Мой диск'}
-          </h1>
+        <div className="flex items-center justify-between gap-3 border-b border-gray-800 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            {currentFolder && (
+              <button onClick={handleBack} className="rounded-md p-1 hover:bg-bg-hover" title="Назад">
+                <ArrowLeft size={20} className="text-gray-400" />
+              </button>
+            )}
+            <h1 className="min-w-0 truncate text-lg font-semibold text-white">
+              {currentFolder ? folderName : 'Мой диск'}
+            </h1>
+          </div>
+          <button
+            onClick={openFilePicker}
+            disabled={Boolean(uploading)}
+            className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Upload size={16} />
+            <span className="hidden sm:inline">Загрузить</span>
+          </button>
         </div>
 
         <div
-          className="flex-1 overflow-y-auto p-4 scrollbar-thin"
+          className={`relative flex-1 overflow-y-auto p-4 scrollbar-thin ${isDragging ? 'bg-blue-500/5' : ''}`}
           onClick={(event) => {
             if (!event.target.closest('[data-drive-item]')) openMenu(event)
           }}
@@ -160,7 +235,43 @@ export const FileExplorer = () => {
           }}
           onTouchEnd={cancelLongPress}
           onTouchMove={cancelLongPress}
+          onDragEnter={handleDragEnter}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
         >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => uploadFiles(event.target.files)}
+          />
+
+          {isDragging && (
+            <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-400 bg-bg-main/90">
+              <div className="text-center text-blue-200">
+                <Upload size={44} className="mx-auto mb-3" />
+                <p className="font-medium">Отпусти файлы для загрузки</p>
+                <p className="mt-1 text-xs text-gray-400">{currentFolder ? `В папку «${folderName}»` : 'В корень диска'}</p>
+              </div>
+            </div>
+          )}
+
+          {uploading && (
+            <div className="sticky top-0 z-10 mb-4 rounded-md border border-blue-500/40 bg-bg-card p-3 shadow-lg">
+              <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 truncate text-gray-200">{uploading.name}</span>
+                <span className="shrink-0 text-blue-300">
+                  {uploading.current}/{uploading.total} · {uploading.progress}%
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-gray-700">
+                <div className="h-full bg-blue-500 transition-[width]" style={{ width: `${uploading.progress}%` }} />
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center h-full text-gray-500">
               <p>Загрузка файлов...</p>
@@ -245,8 +356,15 @@ export const FileExplorer = () => {
             <FolderPlus size={16} />
             Создать папку
           </button>
+          <button
+            className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
+            onClick={openFilePicker}
+          >
+            <Upload size={16} />
+            Загрузить файлы
+          </button>
 
-          {menu.item && (
+          {menu.item && !isSystemFolder(menu.item) && (
             <>
               <button
                 className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"

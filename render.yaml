@@ -12,7 +12,7 @@ services:
       - key: TELEGRAM_SESSION
         sync: false
       - key: TELEGRAM_STORAGE_CHAT
-        value: FTPgram Storage
+        sync: false
       - key: TELEGRAM_INDEX_LIMIT
         value: 100
       - key: DB_PATH

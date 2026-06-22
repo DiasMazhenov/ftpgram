@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import crypto from 'crypto'
 
 let db
+export const SAVED_MESSAGES_FOLDER_ID = 'telegram_saved_messages'
 
 export function initDatabase() {
   const dbPath = process.env.DB_PATH || './ftpgram.db'
@@ -23,6 +24,7 @@ export function initDatabase() {
       mime_type TEXT,
       telegram_message_id INTEGER,
       telegram_chat_id INTEGER,
+      telegram_source TEXT DEFAULT 'storage',
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (folder_id) REFERENCES folders(id)
     );
@@ -36,6 +38,17 @@ export function initDatabase() {
     DELETE FROM folders
     WHERE id LIKE 'chat_%';
   `)
+
+  const fileColumns = db.prepare('PRAGMA table_info(files)').all()
+  if (!fileColumns.some(column => column.name === 'telegram_source')) {
+    db.exec("ALTER TABLE files ADD COLUMN telegram_source TEXT DEFAULT 'storage'")
+  }
+
+  db.prepare(`
+    INSERT INTO folders (id, name, parent_id)
+    VALUES (?, 'Избранное', NULL)
+    ON CONFLICT(id) DO UPDATE SET name = excluded.name, parent_id = NULL
+  `).run(SAVED_MESSAGES_FOLDER_ID)
 
   console.log('✅ Таблицы созданы')
   return db
@@ -104,6 +117,7 @@ export function createFolder(name, parentId = null) {
 }
 
 export function renameFolder(id, name) {
+  if (id === SAVED_MESSAGES_FOLDER_ID) throw new Error('Системную папку нельзя переименовать')
   return db.prepare('UPDATE folders SET name = ? WHERE id = ?').run(name.trim(), id)
 }
 
@@ -112,6 +126,7 @@ export function renameFile(id, name) {
 }
 
 export function moveFolder(id, parentId = null) {
+  if (id === SAVED_MESSAGES_FOLDER_ID) throw new Error('Системную папку нельзя перемещать')
   if (id === parentId) throw new Error('Папку нельзя переместить внутрь самой себя')
   return db.prepare('UPDATE folders SET parent_id = ? WHERE id = ?').run(parentId, id)
 }
@@ -121,6 +136,7 @@ export function moveFile(id, folderId = null) {
 }
 
 export function deleteFolder(id) {
+  if (id === SAVED_MESSAGES_FOLDER_ID) throw new Error('Системную папку нельзя удалить')
   const childFolders = db.prepare('SELECT id FROM folders WHERE parent_id = ?').all(id)
   for (const folder of childFolders) deleteFolder(folder.id)
 
@@ -132,7 +148,7 @@ export function deleteFile(id) {
   return db.prepare('DELETE FROM files WHERE id = ?').run(id)
 }
 
-export function getFolderTelegramMessageIds(id) {
+export function getFolderFiles(id) {
   return db.prepare(`
     WITH RECURSIVE descendants(id) AS (
       SELECT ?
@@ -141,30 +157,44 @@ export function getFolderTelegramMessageIds(id) {
       FROM folders
       JOIN descendants ON folders.parent_id = descendants.id
     )
-    SELECT telegram_message_id
+    SELECT *
     FROM files
     WHERE folder_id IN (SELECT id FROM descendants)
       AND telegram_message_id IS NOT NULL
-  `).all(id).map(row => row.telegram_message_id)
+  `).all(id)
 }
 
-export function insertFile(id, name, folderId = null, size = 0, mimeType = null, msgId = null, chatId = null) {
+export function insertFile(id, name, folderId = null, size = 0, mimeType = null, msgId = null, chatId = null, source = 'storage') {
   return db.prepare(`
-    INSERT OR REPLACE INTO files (id, name, folder_id, size, mime_type, telegram_message_id, telegram_chat_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, name, folderId, size, mimeType, msgId, chatId)
+    INSERT OR REPLACE INTO files (
+      id, name, folder_id, size, mime_type, telegram_message_id, telegram_chat_id, telegram_source
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name, folderId, size, mimeType, msgId, chatId, source)
 }
 
-export function upsertIndexedFile(id, name, size = 0, mimeType = null, msgId = null, chatId = null) {
+export function upsertIndexedFile(
+  id,
+  name,
+  size = 0,
+  mimeType = null,
+  msgId = null,
+  chatId = null,
+  folderId = null,
+  source = 'storage'
+) {
   return db.prepare(`
-    INSERT INTO files (id, name, folder_id, size, mime_type, telegram_message_id, telegram_chat_id)
-    VALUES (?, ?, NULL, ?, ?, ?, ?)
+    INSERT INTO files (
+      id, name, folder_id, size, mime_type, telegram_message_id, telegram_chat_id, telegram_source
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       size = excluded.size,
       mime_type = excluded.mime_type,
       telegram_message_id = excluded.telegram_message_id,
-      telegram_chat_id = excluded.telegram_chat_id
-  `).run(id, name, size, mimeType, msgId, chatId)
+      telegram_chat_id = excluded.telegram_chat_id,
+      telegram_source = excluded.telegram_source
+  `).run(id, name, folderId, size, mimeType, msgId, chatId, source)
 }
 
 export function clearDatabase() {

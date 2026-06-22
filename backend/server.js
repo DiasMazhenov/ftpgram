@@ -1,13 +1,19 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import { createWriteStream } from 'node:fs'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { pipeline } from 'node:stream/promises'
 import {
   initDatabase,
   getDatabase,
   getFileTree,
   getFileById,
+  SAVED_MESSAGES_FOLDER_ID,
   getAllFolders,
-  getFolderTelegramMessageIds,
+  getFolderFiles,
   createFolder,
   deleteFile,
   deleteFolder,
@@ -16,7 +22,16 @@ import {
   renameFile,
   renameFolder
 } from './db.js'
-import { sendCode, signIn, isConnected, disconnect, autoConnect, reindex, deleteStorageMessages } from './telegram.js'
+import {
+  sendCode,
+  signIn,
+  isConnected,
+  disconnect,
+  autoConnect,
+  reindex,
+  deleteTelegramFiles,
+  uploadFile
+} from './telegram.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -75,6 +90,41 @@ app.post('/api/reindex', async (req, res) => {
   }
 })
 
+app.post('/api/files/upload', async (req, res) => {
+  let tempDir
+  try {
+    if (!isConnected()) return res.status(503).json({ error: 'Нет подключения к Telegram' })
+
+    const rawName = req.headers['x-file-name']
+    if (!rawName) return res.status(400).json({ error: 'Имя файла обязательно' })
+
+    const name = path.basename(decodeURIComponent(rawName))
+    const folderId = req.headers['x-folder-id'] || null
+    const maxSize = Number(process.env.MAX_UPLOAD_SIZE || 2 * 1024 * 1024 * 1024)
+    const contentLength = Number(req.headers['content-length'] || 0)
+    if (contentLength > maxSize) return res.status(413).json({ error: 'Файл превышает допустимый размер' })
+
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'ftpgram-upload-'))
+    const tempPath = path.join(tempDir, 'upload')
+    await pipeline(req, createWriteStream(tempPath))
+    const fileStats = await stat(tempPath)
+    if (fileStats.size > maxSize) return res.status(413).json({ error: 'Файл превышает допустимый размер' })
+
+    const file = await uploadFile(
+      tempPath,
+      name,
+      fileStats.size,
+      req.headers['content-type'] || 'application/octet-stream',
+      folderId
+    )
+    res.status(201).json(file)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  } finally {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true })
+  }
+})
+
 app.get('/api/folders', (req, res) => {
   res.json(getAllFolders())
 })
@@ -98,8 +148,11 @@ app.patch('/api/folders/:id', (req, res) => {
 
 app.delete('/api/folders/:id', async (req, res) => {
   try {
-    const messageIds = getFolderTelegramMessageIds(req.params.id)
-    await deleteStorageMessages(messageIds)
+    if (req.params.id === SAVED_MESSAGES_FOLDER_ID) {
+      return res.status(400).json({ error: 'Системную папку нельзя удалить' })
+    }
+    const files = getFolderFiles(req.params.id)
+    await deleteTelegramFiles(files)
     deleteFolder(req.params.id)
     res.json({ success: true })
   } catch (err) {
@@ -118,7 +171,7 @@ app.delete('/api/files/:id', async (req, res) => {
   try {
     const file = getFileById(req.params.id)
     if (!file) return res.status(404).json({ error: 'Файл не найден' })
-    await deleteStorageMessages([file.telegram_message_id])
+    await deleteTelegramFiles([file])
     deleteFile(req.params.id)
     res.json({ success: true })
   } catch (err) {
