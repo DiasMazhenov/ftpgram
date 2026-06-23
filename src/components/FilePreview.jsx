@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Download, ExternalLink, File, X } from 'lucide-react'
 import { downloadItem, getFileUrl, isOfficeFile, openInGoogleDocs } from '../api'
 
@@ -10,7 +10,8 @@ const getPreviewType = (file) => {
   if (mimeType.startsWith('video/')) return 'video'
   if (mimeType.startsWith('audio/')) return 'audio'
   if (mimeType === 'application/pdf' || extension === 'pdf') return 'document'
-  if (mimeType.startsWith('text/') || ['txt', 'md', 'json', 'csv', 'log'].includes(extension)) return 'document'
+  if (mimeType === 'application/json' || extension === 'json') return 'json'
+  if (mimeType.startsWith('text/') || ['txt', 'md', 'csv', 'log'].includes(extension)) return 'document'
   return 'unsupported'
 }
 
@@ -19,6 +20,7 @@ export const FilePreview = ({ file, onClose }) => {
   const previewType = getPreviewType(file)
   const previewUrl = getFileUrl(file.id, true)
   const officeFile = isOfficeFile(file)
+  const [jsonPreview, setJsonPreview] = useState({ loading: false, content: '', error: '' })
 
   const openGoogleDocs = async () => {
     try {
@@ -33,6 +35,37 @@ export const FilePreview = ({ file, onClose }) => {
     dialog.showModal()
     return () => dialog.close()
   }, [])
+
+  useEffect(() => {
+    if (previewType !== 'json') return
+    let active = true
+    setJsonPreview({ loading: true, content: '', error: '' })
+
+    fetch(previewUrl)
+      .then(response => {
+        if (!response.ok) throw new Error(`JSON: ${response.status}`)
+        return response.text()
+      })
+      .then(text => {
+        if (!active) return
+        try {
+          setJsonPreview({
+            loading: false,
+            content: JSON.stringify(JSON.parse(text), null, 2),
+            error: ''
+          })
+        } catch {
+          setJsonPreview({ loading: false, content: text, error: 'Файл не похож на валидный JSON' })
+        }
+      })
+      .catch(error => {
+        if (active) setJsonPreview({ loading: false, content: '', error: error.message })
+      })
+
+    return () => {
+      active = false
+    }
+  }, [previewType, previewUrl])
 
   return (
     <dialog
@@ -113,6 +146,18 @@ export const FilePreview = ({ file, onClose }) => {
               title={`Предпросмотр ${file.name}`}
               className="size-full border-0 bg-white"
             />
+          )}
+
+          {previewType === 'json' && (
+            <div className="flex size-full flex-col overflow-hidden rounded-md border border-gray-800 bg-gray-950">
+              <div className="flex min-h-10 items-center justify-between border-b border-gray-800 px-3 text-xs text-gray-500">
+                <span>JSON</span>
+                {jsonPreview.error && <span className="text-yellow-300">{jsonPreview.error}</span>}
+              </div>
+              <pre className="min-h-0 flex-1 overflow-auto p-4 text-left text-xs leading-5 text-gray-200">
+                {jsonPreview.loading ? 'Загрузка JSON...' : jsonPreview.content}
+              </pre>
+            </div>
           )}
 
           {previewType === 'unsupported' && (

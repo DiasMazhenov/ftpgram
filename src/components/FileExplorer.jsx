@@ -102,6 +102,12 @@ export const FileExplorer = () => {
     setFolderName(folder.name)
   }
 
+  const openTrash = () => {
+    setCurrentFolder(TRASH_FOLDER_ID)
+    setFolderName('Корзина')
+    closeMenu()
+  }
+
   const handleBack = () => {
     setCurrentFolder(null)
     setFolderName('')
@@ -148,6 +154,7 @@ export const FileExplorer = () => {
 
   const handleDragEnter = (event) => {
     event.preventDefault()
+    if (event.dataTransfer?.types.includes('application/x-ftpgram-item')) return
     dragDepth.current += 1
     if (event.dataTransfer?.types.includes('Files')) setIsDragging(true)
   }
@@ -161,10 +168,53 @@ export const FileExplorer = () => {
     }
   }
 
-  const handleDrop = (event) => {
+  const moveDraggedItems = async (draggedItem, targetFolderId) => {
+    const draggedSelection = isSelected(draggedItem)
+      ? selectedActionItems
+      : [draggedItem].filter(item => !isSystemFolder(item))
+    const movableItems = draggedSelection.filter(item => item.id !== targetFolderId)
+    if (!movableItems.length || isTrash) return
+
+    try {
+      await Promise.all(movableItems.map(item => moveItem(item.type, item.id, targetFolderId)))
+      clearSelection()
+      await refresh()
+    } catch (error) {
+      window.alert(error.message)
+    }
+  }
+
+  const getDraggedItem = (event) => {
+    const id = event.dataTransfer.getData('application/x-ftpgram-item') || event.dataTransfer.getData('text/plain')
+    return items.find(item => item.id === id)
+  }
+
+  const handleItemDragStart = (event, item) => {
+    if (isTrash || item.id === TRASH_FOLDER_ID || isSystemFolder(item)) {
+      event.preventDefault()
+      return
+    }
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('application/x-ftpgram-item', item.id)
+    event.dataTransfer.setData('text/plain', item.id)
+  }
+
+  const handleInternalDrop = async (event, targetFolderId) => {
+    const draggedItem = getDraggedItem(event)
+    if (!draggedItem) return false
+    event.preventDefault()
+    event.stopPropagation()
+    dragDepth.current = 0
+    setIsDragging(false)
+    await moveDraggedItems(draggedItem, targetFolderId)
+    return true
+  }
+
+  const handleDrop = async (event) => {
     event.preventDefault()
     dragDepth.current = 0
     setIsDragging(false)
+    if (await handleInternalDrop(event, currentFolder)) return
     uploadFiles(event.dataTransfer.files)
   }
 
@@ -547,14 +597,29 @@ export const FileExplorer = () => {
               {currentFolder ? folderName : 'Мой диск'}
             </h1>
           </div>
-          <button
-            onClick={openFilePicker}
-            disabled={Boolean(uploading) || isTrash}
-            className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Upload size={16} />
-            <span className="hidden sm:inline">Загрузить</span>
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={openFilePicker}
+              disabled={Boolean(uploading) || isTrash}
+              className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Upload size={16} />
+              <span className="hidden sm:inline">Загрузить</span>
+            </button>
+            <button
+              type="button"
+              onClick={openTrash}
+              className={`flex size-9 shrink-0 items-center justify-center rounded-md border ${
+                isTrash
+                  ? 'border-blue-500/60 bg-blue-500/15 text-blue-200'
+                  : 'border-gray-700 bg-bg-card text-gray-400 hover:bg-bg-hover hover:text-white'
+              }`}
+              aria-label="Открыть корзину"
+              title="Корзина"
+            >
+              <Trash2 size={17} />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_36px] items-center gap-2 border-b border-gray-800 px-4 py-3 sm:flex sm:flex-wrap">
@@ -773,9 +838,17 @@ export const FileExplorer = () => {
                   <div
                     key={item.id}
                     data-drive-item
+                    draggable={!isTrash && !isSystemFolder(item) && item.id !== TRASH_FOLDER_ID}
                     className={`grid min-h-12 cursor-pointer grid-cols-[minmax(180px,1fr)_110px_90px_120px] items-center gap-3 border-b px-4 py-2 text-sm last:border-b-0 hover:bg-bg-hover max-md:grid-cols-[minmax(160px,1fr)_90px] ${
                       isSelected(item) ? 'border-blue-500/30 bg-blue-500/10' : 'border-gray-800'
                     }`}
+                    onDragStart={(event) => handleItemDragStart(event, item)}
+                    onDragOver={(event) => {
+                      if (item.type === 'folder' && !isTrash) event.preventDefault()
+                    }}
+                    onDrop={(event) => {
+                      if (item.type === 'folder') handleInternalDrop(event, item.id)
+                    }}
                     onClick={(event) => {
                       if (item.type === 'folder') handleFolderItemClick(event, item)
                       else handleFileItemClick(event, item)
@@ -810,9 +883,15 @@ export const FileExplorer = () => {
                   <div
                     key={folder.id}
                     data-drive-item
+                    draggable={!isTrash && !isSystemFolder(folder)}
                     className={`group relative min-w-0 cursor-pointer overflow-hidden rounded-lg border bg-bg-card hover:border-gray-700 hover:bg-bg-hover ${
                       isSelected(folder) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-gray-800'
                     }`}
+                    onDragStart={(event) => handleItemDragStart(event, folder)}
+                    onDragOver={(event) => {
+                      if (!isTrash) event.preventDefault()
+                    }}
+                    onDrop={(event) => handleInternalDrop(event, folder.id)}
                     onClick={(event) => handleFolderItemClick(event, folder)}
                     onContextMenu={(event) => openMenu(event, folder)}
                     onTouchStart={(event) => startLongPress(event, folder)}
@@ -834,9 +913,11 @@ export const FileExplorer = () => {
                   <div
                     key={file.id}
                     data-drive-item
+                    draggable={!isTrash}
                     className={`group relative min-w-0 cursor-pointer overflow-hidden rounded-lg border bg-bg-card hover:border-gray-700 hover:bg-bg-hover ${
                       isSelected(file) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-gray-800'
                     }`}
+                    onDragStart={(event) => handleItemDragStart(event, file)}
                     onClick={(event) => handleFileItemClick(event, file)}
                     onContextMenu={(event) => openMenu(event, file)}
                     onTouchStart={(event) => startLongPress(event, file)}
@@ -869,9 +950,15 @@ export const FileExplorer = () => {
                   <div
                     key={folder.id}
                     data-drive-item
+                    draggable={!isTrash && !isSystemFolder(folder)}
                     className={`relative min-w-0 cursor-pointer rounded-lg border bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover ${
                       isSelected(folder) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-transparent'
                     }`}
+                    onDragStart={(event) => handleItemDragStart(event, folder)}
+                    onDragOver={(event) => {
+                      if (!isTrash) event.preventDefault()
+                    }}
+                    onDrop={(event) => handleInternalDrop(event, folder.id)}
                     onClick={(event) => handleFolderItemClick(event, folder)}
                     onContextMenu={(event) => openMenu(event, folder)}
                     onTouchStart={(event) => startLongPress(event, folder)}
@@ -891,9 +978,11 @@ export const FileExplorer = () => {
                   <div
                     key={file.id}
                     data-drive-item
+                    draggable={!isTrash}
                     className={`relative min-w-0 cursor-pointer rounded-lg border bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover ${
                       isSelected(file) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-transparent'
                     }`}
+                    onDragStart={(event) => handleItemDragStart(event, file)}
                     onClick={(event) => handleFileItemClick(event, file)}
                     onContextMenu={(event) => openMenu(event, file)}
                     onTouchStart={(event) => startLongPress(event, file)}

@@ -16,6 +16,6 @@ services:
       - key: GOOGLE_VIEWER_SECRET
         generateValue: true
       - key: TELEGRAM_INDEX_LIMIT
-        value: 0
+        value: 5000
       - key: DB_PATH
         value: /tmp/ftpgram.db

@@ -203,7 +203,8 @@ async function indexFiles() {
   console.log('📂 Индексация файлов...')
   cleanupLegacyChatFolders()
   let totalFiles = 0
-  const indexLimit = 0
+  const configuredLimit = Number(process.env.TELEGRAM_INDEX_LIMIT || 5000)
+  const indexLimit = Number.isFinite(configuredLimit) && configuredLimit > 0 ? configuredLimit : 5000
 
   try {
     const storageChat = process.env.TELEGRAM_STORAGE_CHAT || DEFAULT_STORAGE_CHAT

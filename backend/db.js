@@ -165,17 +165,7 @@ export function getFileTree(folderId = null) {
 
   return [
     ...folders,
-    ...files,
-    {
-      id: TRASH_FOLDER_ID,
-      name: 'Корзина',
-      type: 'folder',
-      size: null,
-      mime_type: 'trash',
-      date_added: null,
-      date_modified: null,
-      date_created: null
-    }
+    ...files
   ]
 }
 
@@ -226,6 +216,19 @@ export function renameFile(id, name) {
 export function moveFolder(id, parentId = null) {
   if (SYSTEM_FOLDER_IDS.has(id)) throw new Error('Системную папку нельзя перемещать')
   if (id === parentId) throw new Error('Папку нельзя переместить внутрь самой себя')
+  if (parentId) {
+    const descendant = db.prepare(`
+      WITH RECURSIVE descendants(id) AS (
+        SELECT ?
+        UNION ALL
+        SELECT folders.id
+        FROM folders
+        JOIN descendants ON folders.parent_id = descendants.id
+      )
+      SELECT id FROM descendants WHERE id = ?
+    `).get(id, parentId)
+    if (descendant) throw new Error('Папку нельзя переместить внутрь своей вложенной папки')
+  }
   return db.prepare(`
     UPDATE folders SET parent_id = ?, modified_at = datetime('now') WHERE id = ?
   `).run(parentId, id)
