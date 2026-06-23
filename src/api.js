@@ -105,6 +105,10 @@ export function downloadItem(id) {
   link.remove()
 }
 
+export function prepareFileDownload(id) {
+  return request(`/api/files/${encodeURIComponent(id)}/prepare-download`, { method: 'POST' })
+}
+
 export function getFileUrl(id, inline = false) {
   return `${API_URL}/api/files/${encodeURIComponent(id)}/download${inline ? '?inline=1' : ''}`
 }

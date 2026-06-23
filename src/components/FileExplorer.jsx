@@ -33,6 +33,7 @@ import {
   isOfficeFile,
   moveItem,
   openInGoogleDocs,
+  prepareFileDownload,
   renameItem,
   restoreItem,
   uploadFile
@@ -485,36 +486,58 @@ export const FileExplorer = () => {
     }
   }
 
-  const markDownloadStarted = (name = 'Скачивание', duration = 1200) => {
+  const startDownloadTransfer = (name = 'Скачивание') => {
     const transferId = createTransfer({
       type: 'download',
       name,
       status: 'active',
-      progress: 35
+      progress: 10
     })
-    setDownloadProgress(35)
-    window.setTimeout(() => {
-      setDownloadProgress(100)
-      updateTransfer(transferId, { status: 'active', progress: 100 })
-    }, Math.min(600, duration))
+    setDownloadProgress(10)
+    return transferId
+  }
+
+  const finishDownloadTransfer = (transferId) => {
+    setDownloadProgress(100)
+    updateTransfer(transferId, { status: 'done', progress: 100 })
     window.setTimeout(() => {
       setDownloadProgress(0)
-      updateTransfer(transferId, { status: 'done', progress: 100 })
-    }, duration)
+    }, 800)
   }
 
-  const downloadAction = (item) => {
+  const downloadAction = async (item) => {
     closeMenu()
-    markDownloadStarted(item.name)
-    downloadItem(item.id)
+    const transferId = startDownloadTransfer(item.name)
+    try {
+      await prepareFileDownload(item.id)
+      updateTransfer(transferId, { status: 'active', progress: 85 })
+      setDownloadProgress(85)
+      downloadItem(item.id)
+      finishDownloadTransfer(transferId)
+    } catch (error) {
+      setDownloadProgress(0)
+      updateTransfer(transferId, { status: 'error', error: error.message, progress: 100 })
+      window.alert(error.message)
+    }
   }
 
-  const downloadSelectedAction = () => {
+  const downloadSelectedAction = async () => {
     closeMenu()
-    markDownloadStarted(`${selectedFileItems.length} файлов`, Math.max(1400, selectedFileItems.length * 450))
-    selectedFileItems.forEach((item, index) => {
-      window.setTimeout(() => downloadItem(item.id), index * 300)
-    })
+    const transferId = startDownloadTransfer(`${selectedFileItems.length} файлов`)
+    try {
+      for (const [index, item] of selectedFileItems.entries()) {
+        await prepareFileDownload(item.id)
+        const progress = Math.round(((index + 1) / selectedFileItems.length) * 85)
+        updateTransfer(transferId, { status: 'active', progress })
+        setDownloadProgress(progress)
+        downloadItem(item.id)
+      }
+      finishDownloadTransfer(transferId)
+    } catch (error) {
+      setDownloadProgress(0)
+      updateTransfer(transferId, { status: 'error', error: error.message, progress: 100 })
+      window.alert(error.message)
+    }
   }
 
   const previewAction = (item) => {

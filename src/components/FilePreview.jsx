@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Download, ExternalLink, File, X } from 'lucide-react'
-import { downloadItem, getFileUrl, isOfficeFile, openInGoogleDocs } from '../api'
+import { downloadItem, getFileUrl, isOfficeFile, openInGoogleDocs, prepareFileDownload } from '../api'
 import { useApp } from '../AppContext'
 
 const getPreviewType = (file) => {
@@ -22,6 +22,7 @@ export const FilePreview = ({ file, onClose }) => {
   const previewUrl = getFileUrl(file.id, true)
   const officeFile = isOfficeFile(file)
   const [jsonPreview, setJsonPreview] = useState({ loading: false, content: '', error: '' })
+  const [previewState, setPreviewState] = useState({ loading: false, slow: false, error: '' })
   const { createTransfer, updateTransfer, setDownloadProgress } = useApp()
 
   const openGoogleDocs = async () => {
@@ -32,23 +33,27 @@ export const FilePreview = ({ file, onClose }) => {
     }
   }
 
-  const downloadPreviewFile = () => {
+  const downloadPreviewFile = async () => {
     const transferId = createTransfer({
       type: 'download',
       name: file.name,
       status: 'active',
-      progress: 35
+      progress: 10
     })
-    setDownloadProgress(35)
-    downloadItem(file.id)
-    window.setTimeout(() => {
+    setDownloadProgress(10)
+    try {
+      await prepareFileDownload(file.id)
+      updateTransfer(transferId, { status: 'active', progress: 85 })
+      setDownloadProgress(85)
+      downloadItem(file.id)
       setDownloadProgress(100)
-      updateTransfer(transferId, { status: 'active', progress: 100 })
-    }, 600)
-    window.setTimeout(() => {
-      setDownloadProgress(0)
       updateTransfer(transferId, { status: 'done', progress: 100 })
-    }, 1200)
+      window.setTimeout(() => setDownloadProgress(0), 800)
+    } catch (error) {
+      setDownloadProgress(0)
+      updateTransfer(transferId, { status: 'error', error: error.message, progress: 100 })
+      window.alert(error.message)
+    }
   }
 
   useEffect(() => {
@@ -60,9 +65,11 @@ export const FilePreview = ({ file, onClose }) => {
   useEffect(() => {
     if (previewType !== 'json') return
     let active = true
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 60 * 1000)
     setJsonPreview({ loading: true, content: '', error: '' })
 
-    fetch(previewUrl)
+    fetch(previewUrl, { signal: controller.signal })
       .then(response => {
         if (!response.ok) throw new Error(`JSON: ${response.status}`)
         return response.text()
@@ -80,13 +87,42 @@ export const FilePreview = ({ file, onClose }) => {
         }
       })
       .catch(error => {
-        if (active) setJsonPreview({ loading: false, content: '', error: error.message })
+        if (active) {
+          const message = error.name === 'AbortError'
+            ? 'Telegram слишком долго отдает файл'
+            : error.message
+          setJsonPreview({ loading: false, content: '', error: message })
+        }
       })
 
     return () => {
       active = false
+      window.clearTimeout(timeout)
+      controller.abort()
     }
   }, [previewType, previewUrl])
+
+  useEffect(() => {
+    if (!['image', 'video', 'audio', 'document'].includes(previewType)) {
+      setPreviewState({ loading: false, slow: false, error: '' })
+      return undefined
+    }
+
+    setPreviewState({ loading: true, slow: false, error: '' })
+    const slowTimer = window.setTimeout(() => {
+      setPreviewState(state => state.loading ? { ...state, slow: true } : state)
+    }, 4000)
+
+    return () => window.clearTimeout(slowTimer)
+  }, [previewType, previewUrl])
+
+  const markPreviewReady = () => {
+    setPreviewState({ loading: false, slow: false, error: '' })
+  }
+
+  const markPreviewError = () => {
+    setPreviewState({ loading: false, slow: false, error: 'Не удалось загрузить предпросмотр' })
+  }
 
   return (
     <dialog
@@ -140,9 +176,28 @@ export const FilePreview = ({ file, onClose }) => {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/30 p-3">
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/30 p-3">
+          {(previewState.loading || previewState.error) && (
+            <div className="absolute inset-x-3 top-20 z-10 mx-auto max-w-md rounded-md border border-gray-800 bg-bg-card/95 px-4 py-3 text-center shadow-xl">
+              <p className="text-sm font-medium text-gray-200">
+                {previewState.error || 'Загрузка предпросмотра'}
+              </p>
+              {!previewState.error && (
+                <p className="mt-1 text-xs text-gray-500">
+                  {previewState.slow ? 'Telegram все еще отдает файл, первый просмотр может занять время' : 'Получаю файл из Telegram'}
+                </p>
+              )}
+            </div>
+          )}
+
           {previewType === 'image' && (
-            <img src={previewUrl} alt={file.name} className="max-h-full max-w-full object-contain" />
+            <img
+              src={previewUrl}
+              alt={file.name}
+              onLoad={markPreviewReady}
+              onError={markPreviewError}
+              className="max-h-full max-w-full object-contain"
+            />
           )}
 
           {previewType === 'video' && (
@@ -151,13 +206,22 @@ export const FilePreview = ({ file, onClose }) => {
               controls
               autoPlay
               playsInline
+              onCanPlay={markPreviewReady}
+              onError={markPreviewError}
               className="max-h-full max-w-full bg-black"
             />
           )}
 
           {previewType === 'audio' && (
             <div className="w-full max-w-xl px-4">
-              <audio src={previewUrl} controls autoPlay className="w-full" />
+              <audio
+                src={previewUrl}
+                controls
+                autoPlay
+                onCanPlay={markPreviewReady}
+                onError={markPreviewError}
+                className="w-full"
+              />
             </div>
           )}
 
@@ -165,6 +229,7 @@ export const FilePreview = ({ file, onClose }) => {
             <iframe
               src={previewUrl}
               title={`Предпросмотр ${file.name}`}
+              onLoad={markPreviewReady}
               className="size-full border-0 bg-white"
             />
           )}

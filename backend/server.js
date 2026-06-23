@@ -3,7 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import crypto from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -50,6 +50,8 @@ import {
 const app = express()
 const PORT = process.env.PORT || 4000
 const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
+const DOWNLOAD_CACHE_DIR = process.env.DOWNLOAD_CACHE_DIR || path.join(os.tmpdir(), 'ftpgram-download-cache')
+const downloadCacheJobs = new Map()
 const protocolState = {
   ftp: process.env.FTP_ENABLED !== 'false',
   webdav: process.env.WEBDAV_ENABLED !== 'false'
@@ -93,6 +95,49 @@ function getPublicBaseUrl(req) {
   if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/$/, '')
   const protocol = req.get('x-forwarded-proto') || req.protocol
   return `${protocol}://${req.get('host')}`
+}
+
+function getDownloadCachePath(file) {
+  const hash = crypto
+    .createHash('sha256')
+    .update(`${file.id}:${file.telegram_message_id}:${file.size || 0}`)
+    .digest('hex')
+  return path.join(DOWNLOAD_CACHE_DIR, hash)
+}
+
+async function fileExists(filePath) {
+  try {
+    const fileStats = await stat(filePath)
+    return fileStats.isFile() && fileStats.size > 0
+  } catch {
+    return false
+  }
+}
+
+async function ensureCachedDownload(file) {
+  const cachePath = getDownloadCachePath(file)
+  if (await fileExists(cachePath)) return cachePath
+
+  const existingJob = downloadCacheJobs.get(cachePath)
+  if (existingJob) return existingJob
+
+  const job = (async () => {
+    await mkdir(DOWNLOAD_CACHE_DIR, { recursive: true })
+    const partialPath = `${cachePath}.${crypto.randomUUID()}.part`
+    try {
+      await downloadTelegramFile(file, partialPath)
+      await rename(partialPath, cachePath)
+      return cachePath
+    } catch (error) {
+      await rm(partialPath, { force: true }).catch(() => {})
+      throw error
+    } finally {
+      downloadCacheJobs.delete(cachePath)
+    }
+  })()
+
+  downloadCacheJobs.set(cachePath, job)
+  return job
 }
 
 // Статус
@@ -243,28 +288,35 @@ app.post('/api/files/upload', async (req, res) => {
 })
 
 app.get('/api/files/:id/download', async (req, res) => {
-  let tempDir
   try {
     const file = getFileById(req.params.id)
     if (!file?.telegram_message_id) return res.status(404).json({ error: 'Файл не найден' })
 
-    tempDir = await mkdtemp(path.join(os.tmpdir(), 'ftpgram-download-'))
-    const tempPath = path.join(tempDir, 'download')
-    await downloadTelegramFile(file, tempPath)
-    const cleanup = async error => {
-      await rm(tempDir, { recursive: true, force: true })
-      tempDir = null
+    const cachedPath = await ensureCachedDownload(file)
+    const cleanup = error => {
       if (error && !res.headersSent) res.status(500).json({ error: error.message })
     }
 
     if (req.query.inline === '1') {
       res.type(file.mime_type || 'application/octet-stream')
-      res.sendFile(tempPath, cleanup)
+      res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+      res.sendFile(cachedPath, cleanup)
     } else {
-      res.download(tempPath, file.name, cleanup)
+      res.download(cachedPath, file.name, cleanup)
     }
   } catch (err) {
-    if (tempDir) await rm(tempDir, { recursive: true, force: true })
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/files/:id/prepare-download', async (req, res) => {
+  try {
+    const file = getFileById(req.params.id)
+    if (!file?.telegram_message_id) return res.status(404).json({ error: 'Файл не найден' })
+
+    await ensureCachedDownload(file)
+    res.json({ success: true })
+  } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
@@ -286,7 +338,6 @@ app.get('/api/files/:id/google-docs', (req, res) => {
 })
 
 app.get('/api/public/files/:id', async (req, res) => {
-  let tempDir
   try {
     if (!isValidSignature(req.params.id, req.query.expires, req.query.signature)) {
       return res.status(403).json({ error: 'Ссылка недействительна или устарела' })
@@ -297,18 +348,13 @@ app.get('/api/public/files/:id', async (req, res) => {
       return res.status(404).json({ error: 'Файл не найден' })
     }
 
-    tempDir = await mkdtemp(path.join(os.tmpdir(), 'ftpgram-google-viewer-'))
-    const tempPath = path.join(tempDir, file.name)
-    await downloadTelegramFile(file, tempPath)
+    const cachedPath = await ensureCachedDownload(file)
     res.type(file.mime_type || 'application/octet-stream')
     res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`)
-    res.sendFile(tempPath, async error => {
-      await rm(tempDir, { recursive: true, force: true })
-      tempDir = null
+    res.sendFile(cachedPath, error => {
       if (error && !res.headersSent) res.status(500).json({ error: error.message })
     })
   } catch (err) {
-    if (tempDir) await rm(tempDir, { recursive: true, force: true })
     res.status(500).json({ error: err.message })
   }
 })
