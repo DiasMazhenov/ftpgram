@@ -22,6 +22,12 @@ export async function fetchFiles(folderId = null) {
   return res.json()
 }
 
+export async function fetchTrash() {
+  const res = await fetch(`${API_URL}/api/trash`)
+  if (!res.ok) throw new Error(`Корзина: ${res.status}`)
+  return res.json()
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
@@ -56,6 +62,18 @@ export function renameItem(type, id, name) {
 export function deleteItem(type, id) {
   const path = type === 'folder' ? `/api/folders/${id}` : `/api/files/${id}`
   return request(path, { method: 'DELETE' })
+}
+
+export function restoreItem(type, id) {
+  return request(`/api/trash/${type}/${id}/restore`, { method: 'POST' })
+}
+
+export function deleteForever(type, id) {
+  return request(`/api/trash/${type}/${id}`, { method: 'DELETE' })
+}
+
+export function emptyTrash() {
+  return request('/api/trash', { method: 'DELETE' })
 }
 
 export function moveItem(type, id, folderId = null) {

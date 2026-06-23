@@ -51,6 +51,8 @@ TELEGRAM_STORAGE_CHAT="https://t.me/+PRIVATE_INVITE_HASH"
 invite-ссылку, username или id канала в `TELEGRAM_STORAGE_CHAT`. Файлы из
 Telegram «Избранное» индексируются в отдельную системную папку.
 Значение `TELEGRAM_INDEX_LIMIT=0` индексирует всю историю файлов.
+Удаление работает через корзину: файлы можно восстановить, удалить навсегда или
+дождаться автоочистки через 30 дней.
 
 Не добавляй реальную invite-ссылку в Git: задай её как secret environment
 variable в Render.

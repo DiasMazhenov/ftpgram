@@ -4,7 +4,8 @@ import crypto from 'crypto'
 let db
 export const SAVED_MESSAGES_FOLDER_ID = 'telegram_saved_messages'
 export const STORAGE_FOLDER_ID = 'telegram_storage'
-const SYSTEM_FOLDER_IDS = new Set([SAVED_MESSAGES_FOLDER_ID, STORAGE_FOLDER_ID])
+export const TRASH_FOLDER_ID = 'virtual_trash'
+const SYSTEM_FOLDER_IDS = new Set([SAVED_MESSAGES_FOLDER_ID, STORAGE_FOLDER_ID, TRASH_FOLDER_ID])
 
 export function initDatabase() {
   const dbPath = process.env.DB_PATH || './ftpgram.db'
@@ -16,7 +17,9 @@ export function initDatabase() {
       name TEXT NOT NULL,
       parent_id TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      modified_at TEXT DEFAULT (datetime('now'))
+      modified_at TEXT DEFAULT (datetime('now')),
+      deleted_at TEXT,
+      trash_batch TEXT
     );
 
     CREATE TABLE IF NOT EXISTS files (
@@ -31,6 +34,8 @@ export function initDatabase() {
       created_at TEXT DEFAULT (datetime('now')),
       modified_at TEXT DEFAULT (datetime('now')),
       source_created_at TEXT,
+      deleted_at TEXT,
+      trash_batch TEXT,
       FOREIGN KEY (folder_id) REFERENCES folders(id)
     );
 
@@ -54,10 +59,22 @@ export function initDatabase() {
   if (!fileColumns.some(column => column.name === 'source_created_at')) {
     db.exec('ALTER TABLE files ADD COLUMN source_created_at TEXT')
   }
+  if (!fileColumns.some(column => column.name === 'deleted_at')) {
+    db.exec('ALTER TABLE files ADD COLUMN deleted_at TEXT')
+  }
+  if (!fileColumns.some(column => column.name === 'trash_batch')) {
+    db.exec('ALTER TABLE files ADD COLUMN trash_batch TEXT')
+  }
 
   const folderColumns = db.prepare('PRAGMA table_info(folders)').all()
   if (!folderColumns.some(column => column.name === 'modified_at')) {
     db.exec("ALTER TABLE folders ADD COLUMN modified_at TEXT; UPDATE folders SET modified_at = datetime('now')")
+  }
+  if (!folderColumns.some(column => column.name === 'deleted_at')) {
+    db.exec('ALTER TABLE folders ADD COLUMN deleted_at TEXT')
+  }
+  if (!folderColumns.some(column => column.name === 'trash_batch')) {
+    db.exec('ALTER TABLE folders ADD COLUMN trash_batch TEXT')
   }
 
   db.prepare(`
@@ -97,7 +114,7 @@ export function getFileTree(folderId = null) {
         created_at as date_added,
         modified_at as date_modified,
         created_at as date_created
-      FROM folders WHERE parent_id = ?
+      FROM folders WHERE parent_id = ? AND deleted_at IS NULL
       ORDER BY name
     `).all(folderId)
 
@@ -111,7 +128,7 @@ export function getFileTree(folderId = null) {
         created_at as date_added,
         modified_at as date_modified,
         COALESCE(source_created_at, created_at) as date_created
-      FROM files WHERE folder_id = ?
+      FROM files WHERE folder_id = ? AND deleted_at IS NULL
       ORDER BY name
     `).all(folderId)
 
@@ -128,7 +145,7 @@ export function getFileTree(folderId = null) {
       created_at as date_added,
       modified_at as date_modified,
       created_at as date_created
-    FROM folders WHERE parent_id IS NULL
+    FROM folders WHERE parent_id IS NULL AND deleted_at IS NULL
     ORDER BY name
   `).all()
 
@@ -142,11 +159,24 @@ export function getFileTree(folderId = null) {
       created_at as date_added,
       modified_at as date_modified,
       COALESCE(source_created_at, created_at) as date_created
-    FROM files WHERE folder_id IS NULL
+    FROM files WHERE folder_id IS NULL AND deleted_at IS NULL
     ORDER BY name
   `).all()
 
-  return [...folders, ...files]
+  return [
+    ...folders,
+    ...files,
+    {
+      id: TRASH_FOLDER_ID,
+      name: 'Корзина',
+      type: 'folder',
+      size: null,
+      mime_type: 'trash',
+      date_added: null,
+      date_modified: null,
+      date_created: null
+    }
+  ]
 }
 
 export function getFileById(id) {
@@ -158,6 +188,7 @@ export function getAllFolders() {
   return db.prepare(`
     SELECT id, name, parent_id
     FROM folders
+    WHERE deleted_at IS NULL
     ORDER BY name
   `).all()
 }
@@ -217,6 +248,142 @@ export function deleteFolder(id) {
 
 export function deleteFile(id) {
   return db.prepare('DELETE FROM files WHERE id = ?').run(id)
+}
+
+export function trashFile(id) {
+  const batch = `trash_${crypto.randomUUID()}`
+  return db.prepare(`
+    UPDATE files
+    SET deleted_at = datetime('now'), trash_batch = ?, modified_at = datetime('now')
+    WHERE id = ? AND deleted_at IS NULL
+  `).run(batch, id)
+}
+
+export function trashFolder(id) {
+  if (SYSTEM_FOLDER_IDS.has(id)) throw new Error('Системную папку нельзя удалить')
+  const batch = `trash_${crypto.randomUUID()}`
+  const transaction = db.transaction(() => {
+    db.prepare(`
+      WITH RECURSIVE descendants(id) AS (
+        SELECT ?
+        UNION ALL
+        SELECT folders.id
+        FROM folders
+        JOIN descendants ON folders.parent_id = descendants.id
+      )
+      UPDATE files
+      SET deleted_at = datetime('now'), trash_batch = ?, modified_at = datetime('now')
+      WHERE folder_id IN (SELECT id FROM descendants)
+    `).run(id, batch)
+
+    return db.prepare(`
+      WITH RECURSIVE descendants(id) AS (
+        SELECT ?
+        UNION ALL
+        SELECT folders.id
+        FROM folders
+        JOIN descendants ON folders.parent_id = descendants.id
+      )
+      UPDATE folders
+      SET deleted_at = datetime('now'), trash_batch = ?, modified_at = datetime('now')
+      WHERE id IN (SELECT id FROM descendants)
+    `).run(id, batch)
+  })
+  return transaction()
+}
+
+export function getTrashItems(olderThan = null) {
+  const ageFilter = olderThan ? 'AND datetime(item.deleted_at) <= datetime(?)' : ''
+  const params = olderThan ? [olderThan, olderThan] : []
+  return db.prepare(`
+    SELECT * FROM (
+      SELECT
+        item.id,
+        item.name,
+        'folder' as type,
+        (
+          SELECT COALESCE(SUM(files.size), 0)
+          FROM files
+          WHERE files.trash_batch = item.trash_batch
+        ) as size,
+        'folder' as mime_type,
+        item.created_at as date_added,
+        item.modified_at as date_modified,
+        item.created_at as date_created,
+        item.deleted_at
+      FROM folders item
+      LEFT JOIN folders parent ON parent.id = item.parent_id
+      WHERE item.deleted_at IS NOT NULL
+        AND (parent.id IS NULL OR parent.deleted_at IS NULL OR parent.trash_batch != item.trash_batch)
+        ${ageFilter}
+
+      UNION ALL
+
+      SELECT
+        item.id,
+        item.name,
+        'file' as type,
+        item.size,
+        item.mime_type,
+        item.created_at as date_added,
+        item.modified_at as date_modified,
+        COALESCE(item.source_created_at, item.created_at) as date_created,
+        item.deleted_at
+      FROM files item
+      LEFT JOIN folders parent ON parent.id = item.folder_id
+      WHERE item.deleted_at IS NOT NULL
+        AND (parent.id IS NULL OR parent.deleted_at IS NULL OR parent.trash_batch != item.trash_batch)
+        ${ageFilter}
+    )
+    ORDER BY deleted_at DESC
+  `).all(...params)
+}
+
+export function restoreTrashItem(type, id) {
+  const table = type === 'folder' ? 'folders' : 'files'
+  const item = db.prepare(`SELECT trash_batch FROM ${table} WHERE id = ? AND deleted_at IS NOT NULL`).get(id)
+  if (!item) throw new Error('Элемент не найден в корзине')
+
+  if (type === 'file') {
+    return db.prepare(`
+      UPDATE files
+      SET deleted_at = NULL, trash_batch = NULL, modified_at = datetime('now')
+      WHERE id = ?
+    `).run(id)
+  }
+
+  const transaction = db.transaction(() => {
+    db.prepare(`
+      UPDATE files
+      SET deleted_at = NULL, trash_batch = NULL, modified_at = datetime('now')
+      WHERE trash_batch = ?
+    `).run(item.trash_batch)
+    return db.prepare(`
+      UPDATE folders
+      SET deleted_at = NULL, trash_batch = NULL, modified_at = datetime('now')
+      WHERE trash_batch = ?
+    `).run(item.trash_batch)
+  })
+  return transaction()
+}
+
+export function getTrashFiles(type, id) {
+  if (type === 'file') {
+    const file = db.prepare('SELECT * FROM files WHERE id = ? AND deleted_at IS NOT NULL').get(id)
+    return file ? [file] : []
+  }
+  const folder = db.prepare('SELECT trash_batch FROM folders WHERE id = ? AND deleted_at IS NOT NULL').get(id)
+  if (!folder) return []
+  return db.prepare('SELECT * FROM files WHERE trash_batch = ?').all(folder.trash_batch)
+}
+
+export function permanentlyDeleteTrashItem(type, id) {
+  const table = type === 'folder' ? 'folders' : 'files'
+  const item = db.prepare(`SELECT id FROM ${table} WHERE id = ? AND deleted_at IS NOT NULL`).get(id)
+  if (!item) throw new Error('Элемент не найден в корзине')
+
+  if (type === 'file') return deleteFile(id)
+  return deleteFolder(id)
 }
 
 export function getFolderFiles(id) {

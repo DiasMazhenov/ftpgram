@@ -21,20 +21,25 @@ import {
 import {
   createFolder,
   deleteItem,
+  deleteForever,
   downloadItem,
+  emptyTrash,
   fetchFiles,
   fetchFolders,
+  fetchTrash,
   getFileUrl,
   isOfficeFile,
   moveItem,
   openInGoogleDocs,
   renameItem,
+  restoreItem,
   uploadFile
 } from '../api'
 import { useApp } from '../AppContext'
 import { FilePreview } from './FilePreview'
 
 export const FileExplorer = () => {
+  const TRASH_FOLDER_ID = 'virtual_trash'
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [currentFolder, setCurrentFolder] = useState(null)
@@ -52,12 +57,13 @@ export const FileExplorer = () => {
   const dragDepth = useRef(0)
   const longPressTriggered = useRef(false)
   const { setUploadProgress, loadStats } = useApp()
-  const isSystemFolder = (item) => ['telegram_saved_messages', 'telegram_storage'].includes(item?.id)
+  const isSystemFolder = (item) => ['telegram_saved_messages', 'telegram_storage', TRASH_FOLDER_ID].includes(item?.id)
+  const isTrash = currentFolder === TRASH_FOLDER_ID
 
   const loadFiles = useCallback(async (folderId = null) => {
     setLoading(true)
     try {
-      const data = await fetchFiles(folderId)
+      const data = folderId === TRASH_FOLDER_ID ? await fetchTrash() : await fetchFiles(folderId)
       setItems(data)
     } catch {
       setItems([])
@@ -73,6 +79,11 @@ export const FileExplorer = () => {
   }, [currentFolder, loadFiles])
 
   const handleFolderClick = (folder) => {
+    if (folder.id === TRASH_FOLDER_ID) {
+      setCurrentFolder(TRASH_FOLDER_ID)
+      setFolderName('Корзина')
+      return
+    }
     setCurrentFolder(folder.id)
     setFolderName(folder.name)
   }
@@ -86,7 +97,7 @@ export const FileExplorer = () => {
 
   const uploadFiles = async (fileList) => {
     const files = Array.from(fileList || [])
-    if (!files.length || uploading) return
+    if (!files.length || uploading || isTrash) return
 
     closeMenu()
     setUploading({ current: 0, total: files.length, name: files[0].name, progress: 0 })
@@ -116,6 +127,7 @@ export const FileExplorer = () => {
   }
 
   const openFilePicker = () => {
+    if (isTrash) return
     closeMenu()
     fileInputRef.current?.click()
   }
@@ -157,6 +169,7 @@ export const FileExplorer = () => {
 
   const createFolderAction = async () => {
     closeMenu()
+    if (isTrash) return
     const name = window.prompt('Название папки')
     if (!name?.trim()) return
     try {
@@ -187,6 +200,38 @@ export const FileExplorer = () => {
     try {
       await deleteItem(item.type, item.id)
       await refresh()
+    } catch (error) {
+      window.alert(error.message)
+    }
+  }
+
+  const restoreAction = async (item) => {
+    closeMenu()
+    try {
+      await restoreItem(item.type, item.id)
+      await Promise.all([refresh(), loadStats()])
+    } catch (error) {
+      window.alert(error.message)
+    }
+  }
+
+  const deleteForeverAction = async (item) => {
+    closeMenu()
+    if (!window.confirm(`Удалить навсегда "${item.name}"? Это действие нельзя отменить.`)) return
+    try {
+      await deleteForever(item.type, item.id)
+      await Promise.all([refresh(), loadStats()])
+    } catch (error) {
+      window.alert(error.message)
+    }
+  }
+
+  const emptyTrashAction = async () => {
+    closeMenu()
+    if (!window.confirm('Очистить корзину навсегда? Это действие нельзя отменить.')) return
+    try {
+      await emptyTrash()
+      await Promise.all([refresh(), loadStats()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -287,6 +332,7 @@ export const FileExplorer = () => {
   }
 
   const getItemType = (item) => {
+    if (item.id === TRASH_FOLDER_ID) return 'Корзина'
     if (item.type === 'folder') return 'Папка'
     const extension = item.name.includes('.') ? item.name.split('.').pop().toUpperCase() : ''
     return extension || item.mime_type || 'Файл'
@@ -347,7 +393,7 @@ export const FileExplorer = () => {
           </div>
           <button
             onClick={openFilePicker}
-            disabled={Boolean(uploading)}
+            disabled={Boolean(uploading) || isTrash}
             className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Upload size={16} />
@@ -520,7 +566,9 @@ export const FileExplorer = () => {
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       {item.type === 'folder'
-                        ? <Folder className="shrink-0 text-yellow-400" size={20} />
+                        ? item.id === TRASH_FOLDER_ID
+                          ? <Trash2 className="shrink-0 text-gray-400" size={20} />
+                          : <Folder className="shrink-0 text-yellow-400" size={20} />
                         : <File className="shrink-0 text-gray-400" size={20} />}
                       <span className="truncate text-gray-200" title={item.name}>{item.name}</span>
                     </div>
@@ -548,7 +596,9 @@ export const FileExplorer = () => {
                     onTouchMove={cancelLongPress}
                   >
                     <div className="flex aspect-video items-center justify-center bg-gray-900">
-                      <Folder className="text-yellow-400" size={52} />
+                      {folder.id === TRASH_FOLDER_ID
+                        ? <Trash2 className="text-gray-400" size={52} />
+                        : <Folder className="text-yellow-400" size={52} />}
                     </div>
                     <div className="truncate px-3 py-2 text-sm font-medium text-gray-200" title={folder.name}>
                       {folder.name}
@@ -586,7 +636,7 @@ export const FileExplorer = () => {
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
                 {folders.map(folder => (
                   <div
                     key={folder.id}
@@ -599,7 +649,9 @@ export const FileExplorer = () => {
                     onTouchMove={cancelLongPress}
                   >
                     <div className="mb-3 flex justify-center">
-                      <Folder className="text-yellow-400" size={40} />
+                      {folder.id === TRASH_FOLDER_ID
+                        ? <Trash2 className="text-gray-400" size={40} />
+                        : <Folder className="text-yellow-400" size={40} />}
                     </div>
                     <div className="truncate text-center text-sm font-medium" title={folder.name}>{folder.name}</div>
                   </div>
@@ -628,7 +680,7 @@ export const FileExplorer = () => {
             <div className="flex items-center justify-center h-full text-gray-500">
               <div className="text-center">
                 <File size={48} className="mx-auto mb-2 opacity-50" />
-                <p>{query ? 'Ничего не найдено' : currentFolder ? 'Папка пуста' : 'Нет файлов'}</p>
+                <p>{query ? 'Ничего не найдено' : isTrash ? 'Корзина пуста' : currentFolder ? 'Папка пуста' : 'Нет файлов'}</p>
                 {query ? (
                   <button
                     type="button"
@@ -661,22 +713,55 @@ export const FileExplorer = () => {
           style={{ left: menu.x, top: menu.y }}
           onClick={(event) => event.stopPropagation()}
         >
-          <button
-            className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
-            onClick={createFolderAction}
-          >
-            <FolderPlus size={16} />
-            Создать папку
-          </button>
-          <button
-            className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
-            onClick={openFilePicker}
-          >
-            <Upload size={16} />
-            Загрузить файлы
-          </button>
+          {!isTrash && (
+            <>
+              <button
+                className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
+                onClick={createFolderAction}
+              >
+                <FolderPlus size={16} />
+                Создать папку
+              </button>
+              <button
+                className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
+                onClick={openFilePicker}
+              >
+                <Upload size={16} />
+                Загрузить файлы
+              </button>
+            </>
+          )}
 
-          {menu.item?.type === 'file' && (
+          {isTrash && !menu.item && (
+            <button
+              className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-red-300 hover:bg-red-500/10"
+              onClick={emptyTrashAction}
+            >
+              <Trash2 size={16} />
+              Очистить корзину
+            </button>
+          )}
+
+          {isTrash && menu.item && (
+            <>
+              <button
+                className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
+                onClick={() => restoreAction(menu.item)}
+              >
+                <MoveRight size={16} />
+                Восстановить
+              </button>
+              <button
+                className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-red-300 hover:bg-red-500/10"
+                onClick={() => deleteForeverAction(menu.item)}
+              >
+                <Trash2 size={16} />
+                Удалить навсегда
+              </button>
+            </>
+          )}
+
+          {!isTrash && menu.item?.type === 'file' && (
             <>
               {isOfficeFile(menu.item) && (
                 <button
@@ -697,7 +782,7 @@ export const FileExplorer = () => {
             </>
           )}
 
-          {menu.item && !isSystemFolder(menu.item) && (
+          {!isTrash && menu.item && !isSystemFolder(menu.item) && (
             <>
               <button
                 className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"

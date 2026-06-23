@@ -15,14 +15,17 @@ import {
   SAVED_MESSAGES_FOLDER_ID,
   STORAGE_FOLDER_ID,
   getAllFolders,
-  getFolderFiles,
+  getTrashFiles,
+  getTrashItems,
   createFolder,
-  deleteFile,
-  deleteFolder,
   moveFile,
   moveFolder,
+  permanentlyDeleteTrashItem,
   renameFile,
-  renameFolder
+  renameFolder,
+  restoreTrashItem,
+  trashFile,
+  trashFolder
 } from './db.js'
 import {
   sendCode,
@@ -115,6 +118,10 @@ app.post('/api/disconnect', async (req, res) => {
 app.get('/api/files', (req, res) => {
   const folder = req.query.folder || null
   res.json(getFileTree(folder))
+})
+
+app.get('/api/trash', (req, res) => {
+  res.json(getTrashItems())
 })
 
 // Принудительная переиндексация
@@ -259,9 +266,7 @@ app.delete('/api/folders/:id', async (req, res) => {
     if ([SAVED_MESSAGES_FOLDER_ID, STORAGE_FOLDER_ID].includes(req.params.id)) {
       return res.status(400).json({ error: 'Системную папку нельзя удалить' })
     }
-    const files = getFolderFiles(req.params.id)
-    await deleteTelegramFiles(files)
-    deleteFolder(req.params.id)
+    trashFolder(req.params.id)
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -279,8 +284,41 @@ app.delete('/api/files/:id', async (req, res) => {
   try {
     const file = getFileById(req.params.id)
     if (!file) return res.status(404).json({ error: 'Файл не найден' })
-    await deleteTelegramFiles([file])
-    deleteFile(req.params.id)
+    if (file.deleted_at) return res.status(404).json({ error: 'Файл уже в корзине' })
+    trashFile(req.params.id)
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/trash/:type/:id/restore', (req, res) => {
+  try {
+    const { type, id } = req.params
+    if (!['file', 'folder'].includes(type)) return res.status(400).json({ error: 'Неизвестный тип элемента' })
+    restoreTrashItem(type, id)
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/trash/:type/:id', async (req, res) => {
+  try {
+    const { type, id } = req.params
+    if (!['file', 'folder'].includes(type)) return res.status(400).json({ error: 'Неизвестный тип элемента' })
+    const files = getTrashFiles(type, id)
+    await deleteTelegramFiles(files)
+    permanentlyDeleteTrashItem(type, id)
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/trash', async (req, res) => {
+  try {
+    await purgeTrash(getTrashItems())
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -308,11 +346,28 @@ app.get('/api/files/:id', (req, res) => {
 // Статистика
 app.get('/api/stats', (req, res) => {
   const db = getDatabase()
-  const files = db.prepare('SELECT COUNT(*) as count FROM files').get().count
-  const folders = db.prepare('SELECT COUNT(*) as count FROM folders').get().count
-  const totalSize = db.prepare('SELECT SUM(size) as total FROM files').get().total || 0
+  const files = db.prepare('SELECT COUNT(*) as count FROM files WHERE deleted_at IS NULL').get().count
+  const folders = db.prepare('SELECT COUNT(*) as count FROM folders WHERE deleted_at IS NULL').get().count
+  const totalSize = db.prepare('SELECT SUM(size) as total FROM files WHERE deleted_at IS NULL').get().total || 0
   res.json({ files, folders, totalSize })
 })
+
+async function purgeTrash(items) {
+  for (const item of items) {
+    const files = getTrashFiles(item.type, item.id)
+    await deleteTelegramFiles(files)
+    permanentlyDeleteTrashItem(item.type, item.id)
+  }
+}
+
+async function purgeExpiredTrash() {
+  if (!isConnected()) return
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const expiredItems = getTrashItems(cutoff)
+  if (!expiredItems.length) return
+  await purgeTrash(expiredItems)
+  console.log(`🧹 Корзина очищена: ${expiredItems.length} элементов`)
+}
 
 async function start() {
   initDatabase()
@@ -320,6 +375,10 @@ async function start() {
 
   // Пробуем авто-подключиться если есть сохранённая сессия
   await autoConnect()
+  purgeExpiredTrash().catch(err => console.error('❌ Ошибка автоочистки корзины:', err.message))
+  setInterval(() => {
+    purgeExpiredTrash().catch(err => console.error('❌ Ошибка автоочистки корзины:', err.message))
+  }, 24 * 60 * 60 * 1000)
 
   app.listen(PORT, () => {
     console.log(`🚀 FTPgram Backend: http://localhost:${PORT}`)
