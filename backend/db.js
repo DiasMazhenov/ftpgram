@@ -470,7 +470,7 @@ export function upsertIndexedFile(
 
 export function removeMissingIndexedFiles(source, messageIds) {
   if (!messageIds.length) {
-    return db.prepare('DELETE FROM files WHERE telegram_source = ?').run(source)
+    return { changes: 0 }
   }
 
   const placeholders = messageIds.map(() => '?').join(', ')

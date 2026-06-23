@@ -139,11 +139,42 @@ async function getStorageEntity(storageChat) {
   try {
     return await client.getEntity(storageChat)
   } catch {
-    const dialogs = await client.getDialogs({ limit: 100 })
+    const inviteEntity = await getInviteEntity(storageChat).catch(() => null)
+    if (inviteEntity) return inviteEntity
+
+    const dialogs = await client.getDialogs({ limit: 500 })
     const dialog = dialogs.find(item => item.name === 'FTPgram Storage' || item.title === 'FTPgram Storage')
     if (!dialog) throw new Error(`Telegram storage "${storageChat}" не найден`)
     return dialog.entity
   }
+}
+
+function extractInviteHash(value = '') {
+  const text = String(value).trim()
+  const patterns = [
+    /t\.me\/\+([^/?#]+)/i,
+    /t\.me\/joinchat\/([^/?#]+)/i,
+    /^\+?([A-Za-z0-9_-]{12,})$/
+  ]
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (match?.[1]) return match[1]
+  }
+  return null
+}
+
+async function getInviteEntity(storageChat) {
+  const hash = extractInviteHash(storageChat)
+  if (!hash) return null
+
+  const { Api } = await import('telegram')
+  const checked = await client.invoke(new Api.messages.CheckChatInvite({ hash }))
+  if (checked?.chat) return checked.chat
+
+  const imported = await client.invoke(new Api.messages.ImportChatInvite({ hash }))
+  const chat = imported?.chats?.[0]
+  if (!chat) return null
+  return await client.getEntity(chat)
 }
 
 export async function uploadFile(filePath, name, size, mimeType, folderId = null) {
@@ -195,7 +226,11 @@ function indexMessages(messages, entity, { prefix, folderId, source }) {
     )
     count++
   }
-  removeMissingIndexedFiles(source, messageIds)
+  if (messageIds.length > 0 && process.env.TELEGRAM_PRUNE_MISSING === 'true') {
+    removeMissingIndexedFiles(source, messageIds)
+  } else if (!messageIds.length) {
+    console.warn(`⚠️ Индексация ${source}: Telegram вернул ${messages.length} сообщений, файлов не найдено; локальный индекс не очищен`)
+  }
   return count
 }
 
