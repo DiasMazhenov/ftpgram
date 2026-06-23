@@ -175,20 +175,24 @@ export const Dashboard = () => {
           </div>
         </section>
 
-        <TransferStatus
-          icon={Upload}
-          title="Загрузка"
-          progress={uploadProgress}
-          color="text-blue-400"
-          idleText="Ожидание загрузки"
-        />
-        <TransferStatus
-          icon={Download}
-          title="Скачивание"
-          progress={downloadProgress}
-          color="text-green-400"
-          idleText="Ожидание скачивания"
-        />
+        {uploadProgress > 0 && (
+          <TransferStatus
+            icon={Upload}
+            title="Загрузка"
+            progress={uploadProgress}
+            color="text-blue-400"
+            idleText="Ожидание загрузки"
+          />
+        )}
+        {downloadProgress > 0 && (
+          <TransferStatus
+            icon={Download}
+            title="Скачивание"
+            progress={downloadProgress}
+            color="text-green-400"
+            idleText="Ожидание скачивания"
+          />
+        )}
       </div>
     </div>
   )

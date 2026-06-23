@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   ArrowLeft,
   ArrowUpDown,
+  Check,
+  CheckSquare,
   ChevronDown,
   Download,
   Edit3,
@@ -40,6 +42,8 @@ import { FilePreview } from './FilePreview'
 
 export const FileExplorer = () => {
   const TRASH_FOLDER_ID = 'virtual_trash'
+  const STORAGE_FOLDER_ID = 'telegram_storage'
+  const STORAGE_TELEGRAM_URL = 'https://t.me/+DrEAy7KMU-A4ZWYy'
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [currentFolder, setCurrentFolder] = useState(null)
@@ -53,11 +57,12 @@ export const FileExplorer = () => {
   const [sortBy, setSortBy] = useState('name')
   const [sortDescending, setSortDescending] = useState(false)
   const [previewFile, setPreviewFile] = useState(null)
+  const [selectedIds, setSelectedIds] = useState([])
   const fileInputRef = useRef(null)
   const dragDepth = useRef(0)
   const longPressTriggered = useRef(false)
-  const { setUploadProgress, loadStats } = useApp()
-  const isSystemFolder = (item) => ['telegram_saved_messages', 'telegram_storage', TRASH_FOLDER_ID].includes(item?.id)
+  const { setUploadProgress, setDownloadProgress, loadStats } = useApp()
+  const isSystemFolder = (item) => ['telegram_saved_messages', STORAGE_FOLDER_ID, TRASH_FOLDER_ID].includes(item?.id)
   const isTrash = currentFolder === TRASH_FOLDER_ID
 
   const loadFiles = useCallback(async (folderId = null) => {
@@ -77,6 +82,15 @@ export const FileExplorer = () => {
     const interval = setInterval(() => loadFiles(currentFolder), 15000)
     return () => clearInterval(interval)
   }, [currentFolder, loadFiles])
+
+  useEffect(() => {
+    setSelectedIds([])
+  }, [currentFolder])
+
+  useEffect(() => {
+    const itemIds = new Set(items.map(item => item.id))
+    setSelectedIds(ids => ids.filter(id => itemIds.has(id)))
+  }, [items])
 
   const handleFolderClick = (folder) => {
     if (folder.id === TRASH_FOLDER_ID) {
@@ -167,6 +181,33 @@ export const FileExplorer = () => {
 
   const closeMenu = () => setMenu(null)
 
+  const selectedItems = useMemo(
+    () => selectedIds.map(id => items.find(item => item.id === id)).filter(Boolean),
+    [items, selectedIds]
+  )
+
+  const selectedActionItems = selectedItems.filter(item => !isSystemFolder(item))
+  const selectedFileItems = selectedItems.filter(item => item.type === 'file')
+  const hasSelection = selectedItems.length > 0
+
+  const isSelected = item => selectedIds.includes(item.id)
+
+  const toggleSelection = (item) => {
+    closeMenu()
+    if (item.id === TRASH_FOLDER_ID) return
+    setSelectedIds(ids => ids.includes(item.id)
+      ? ids.filter(id => id !== item.id)
+      : [...ids, item.id]
+    )
+  }
+
+  const clearSelection = () => setSelectedIds([])
+
+  const selectAllVisible = () => {
+    setSelectedIds(selectableItems.map(item => item.id))
+    closeMenu()
+  }
+
   const createFolderAction = async () => {
     closeMenu()
     if (isTrash) return
@@ -205,10 +246,35 @@ export const FileExplorer = () => {
     }
   }
 
+  const deleteSelectedAction = async () => {
+    closeMenu()
+    if (!selectedActionItems.length) return
+    if (!window.confirm(`Удалить выбранные элементы (${selectedActionItems.length})?`)) return
+    try {
+      await Promise.all(selectedActionItems.map(item => deleteItem(item.type, item.id)))
+      clearSelection()
+      await Promise.all([refresh(), loadStats()])
+    } catch (error) {
+      window.alert(error.message)
+    }
+  }
+
   const restoreAction = async (item) => {
     closeMenu()
     try {
       await restoreItem(item.type, item.id)
+      await Promise.all([refresh(), loadStats()])
+    } catch (error) {
+      window.alert(error.message)
+    }
+  }
+
+  const restoreSelectedAction = async () => {
+    closeMenu()
+    if (!selectedItems.length) return
+    try {
+      await Promise.all(selectedItems.map(item => restoreItem(item.type, item.id)))
+      clearSelection()
       await Promise.all([refresh(), loadStats()])
     } catch (error) {
       window.alert(error.message)
@@ -226,6 +292,19 @@ export const FileExplorer = () => {
     }
   }
 
+  const deleteSelectedForeverAction = async () => {
+    closeMenu()
+    if (!selectedItems.length) return
+    if (!window.confirm(`Удалить навсегда выбранные элементы (${selectedItems.length})? Это действие нельзя отменить.`)) return
+    try {
+      await Promise.all(selectedItems.map(item => deleteForever(item.type, item.id)))
+      clearSelection()
+      await Promise.all([refresh(), loadStats()])
+    } catch (error) {
+      window.alert(error.message)
+    }
+  }
+
   const emptyTrashAction = async () => {
     closeMenu()
     if (!window.confirm('Очистить корзину навсегда? Это действие нельзя отменить.')) return
@@ -237,9 +316,24 @@ export const FileExplorer = () => {
     }
   }
 
+  const markDownloadStarted = (duration = 1200) => {
+    setDownloadProgress(35)
+    window.setTimeout(() => setDownloadProgress(100), Math.min(600, duration))
+    window.setTimeout(() => setDownloadProgress(0), duration)
+  }
+
   const downloadAction = (item) => {
     closeMenu()
+    markDownloadStarted()
     downloadItem(item.id)
+  }
+
+  const downloadSelectedAction = () => {
+    closeMenu()
+    markDownloadStarted(Math.max(1400, selectedFileItems.length * 450))
+    selectedFileItems.forEach((item, index) => {
+      window.setTimeout(() => downloadItem(item.id), index * 300)
+    })
   }
 
   const previewAction = (item) => {
@@ -254,6 +348,11 @@ export const FileExplorer = () => {
     } catch (error) {
       window.alert(error.message)
     }
+  }
+
+  const openTelegramAction = () => {
+    closeMenu()
+    window.open(STORAGE_TELEGRAM_URL, '_blank', 'noopener,noreferrer')
   }
 
   const moveAction = async (item) => {
@@ -272,6 +371,31 @@ export const FileExplorer = () => {
 
       const target = index === 0 ? null : folderOptions[index - 1]
       await moveItem(item.type, item.id, target?.id || null)
+      await refresh()
+    } catch (error) {
+      window.alert(error.message)
+    }
+  }
+
+  const moveSelectedAction = async () => {
+    closeMenu()
+    if (!selectedActionItems.length) return
+    try {
+      const selectedIdSet = new Set(selectedActionItems.map(item => item.id))
+      const folderOptions = (await fetchFolders()).filter(folder => !selectedIdSet.has(folder.id))
+      const options = ['0. Мой диск', ...folderOptions.map((folder, index) => `${index + 1}. ${folder.name}`)]
+      const choice = window.prompt(`Выбери папку назначения:\n${options.join('\n')}`, '0')
+      if (choice === null) return
+
+      const index = Number(choice)
+      if (!Number.isInteger(index) || index < 0 || index > folderOptions.length) {
+        window.alert('Укажи номер папки из списка')
+        return
+      }
+
+      const target = index === 0 ? null : folderOptions[index - 1]
+      await Promise.all(selectedActionItems.map(item => moveItem(item.type, item.id, target?.id || null)))
+      clearSelection()
       await refresh()
     } catch (error) {
       window.alert(error.message)
@@ -303,12 +427,20 @@ export const FileExplorer = () => {
   const handleFolderItemClick = (event, folder) => {
     event.stopPropagation()
     if (consumeLongPress()) return
+    if (event.metaKey || event.ctrlKey) {
+      toggleSelection(folder)
+      return
+    }
     handleFolderClick(folder)
   }
 
   const handleFileItemClick = (event, file) => {
     event.stopPropagation()
     if (consumeLongPress()) return
+    if (event.metaKey || event.ctrlKey) {
+      toggleSelection(file)
+      return
+    }
     previewAction(file)
   }
 
@@ -366,7 +498,31 @@ export const FileExplorer = () => {
 
   const folders = visibleItems.filter(item => item.type === 'folder')
   const fileItems = visibleItems.filter(item => item.type === 'file')
+  const selectableItems = visibleItems.filter(item => item.id !== TRASH_FOLDER_ID)
   const ViewIcon = viewMode === 'table' ? List : viewMode === 'gallery' ? Images : LayoutGrid
+
+  const renderSelectionButton = (item) => {
+    if (item.id === TRASH_FOLDER_ID) return <span className="size-5 shrink-0" />
+    const selected = isSelected(item)
+    return (
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation()
+          toggleSelection(item)
+        }}
+        className={`flex size-5 shrink-0 items-center justify-center rounded border ${
+          selected
+            ? 'border-blue-400 bg-blue-500 text-white'
+            : 'border-gray-600 bg-gray-900/60 text-transparent hover:border-gray-400'
+        }`}
+        aria-label={selected ? 'Снять выбор' : 'Выбрать'}
+        aria-pressed={selected}
+      >
+        <Check size={14} strokeWidth={3} />
+      </button>
+    )
+  }
 
   return (
     <div
@@ -537,6 +693,69 @@ export const FileExplorer = () => {
             </div>
           )}
 
+          {hasSelection && (
+            <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-500/40 bg-bg-card p-3 shadow-lg">
+              <div className="flex min-w-0 items-center gap-2 text-sm text-gray-200">
+                <CheckSquare size={17} className="shrink-0 text-blue-300" />
+                <span className="truncate">Выбрано: {selectedItems.length}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {!isTrash && selectedFileItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={downloadSelectedAction}
+                    className="rounded-md border border-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-bg-hover"
+                  >
+                    Скачать
+                  </button>
+                )}
+                {!isTrash && selectedActionItems.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={moveSelectedAction}
+                      className="rounded-md border border-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-bg-hover"
+                    >
+                      Переместить
+                    </button>
+                    <button
+                      type="button"
+                      onClick={deleteSelectedAction}
+                      className="rounded-md border border-red-500/50 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/10"
+                    >
+                      Удалить
+                    </button>
+                  </>
+                )}
+                {isTrash && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={restoreSelectedAction}
+                      className="rounded-md border border-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-bg-hover"
+                    >
+                      Восстановить
+                    </button>
+                    <button
+                      type="button"
+                      onClick={deleteSelectedForeverAction}
+                      className="rounded-md border border-red-500/50 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/10"
+                    >
+                      Удалить навсегда
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="rounded-md px-3 py-1.5 text-sm text-gray-400 hover:bg-bg-hover hover:text-gray-200"
+                >
+                  Снять
+                </button>
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center h-full text-gray-500">
               <p>Загрузка файлов...</p>
@@ -554,7 +773,9 @@ export const FileExplorer = () => {
                   <div
                     key={item.id}
                     data-drive-item
-                    className="grid min-h-12 cursor-pointer grid-cols-[minmax(180px,1fr)_110px_90px_120px] items-center gap-3 border-b border-gray-800 px-4 py-2 text-sm last:border-b-0 hover:bg-bg-hover max-md:grid-cols-[minmax(160px,1fr)_90px]"
+                    className={`grid min-h-12 cursor-pointer grid-cols-[minmax(180px,1fr)_110px_90px_120px] items-center gap-3 border-b px-4 py-2 text-sm last:border-b-0 hover:bg-bg-hover max-md:grid-cols-[minmax(160px,1fr)_90px] ${
+                      isSelected(item) ? 'border-blue-500/30 bg-blue-500/10' : 'border-gray-800'
+                    }`}
                     onClick={(event) => {
                       if (item.type === 'folder') handleFolderItemClick(event, item)
                       else handleFileItemClick(event, item)
@@ -565,6 +786,7 @@ export const FileExplorer = () => {
                     onTouchMove={cancelLongPress}
                   >
                     <div className="flex min-w-0 items-center gap-3">
+                      {renderSelectionButton(item)}
                       {item.type === 'folder'
                         ? item.id === TRASH_FOLDER_ID
                           ? <Trash2 className="shrink-0 text-gray-400" size={20} />
@@ -588,13 +810,16 @@ export const FileExplorer = () => {
                   <div
                     key={folder.id}
                     data-drive-item
-                    className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-gray-800 bg-bg-card hover:border-gray-700 hover:bg-bg-hover"
+                    className={`group relative min-w-0 cursor-pointer overflow-hidden rounded-lg border bg-bg-card hover:border-gray-700 hover:bg-bg-hover ${
+                      isSelected(folder) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-gray-800'
+                    }`}
                     onClick={(event) => handleFolderItemClick(event, folder)}
                     onContextMenu={(event) => openMenu(event, folder)}
                     onTouchStart={(event) => startLongPress(event, folder)}
                     onTouchEnd={cancelLongPress}
                     onTouchMove={cancelLongPress}
                   >
+                    <div className="absolute left-2 top-2 z-10">{renderSelectionButton(folder)}</div>
                     <div className="flex aspect-video items-center justify-center bg-gray-900">
                       {folder.id === TRASH_FOLDER_ID
                         ? <Trash2 className="text-gray-400" size={52} />
@@ -609,13 +834,16 @@ export const FileExplorer = () => {
                   <div
                     key={file.id}
                     data-drive-item
-                    className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-gray-800 bg-bg-card hover:border-gray-700 hover:bg-bg-hover"
+                    className={`group relative min-w-0 cursor-pointer overflow-hidden rounded-lg border bg-bg-card hover:border-gray-700 hover:bg-bg-hover ${
+                      isSelected(file) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-gray-800'
+                    }`}
                     onClick={(event) => handleFileItemClick(event, file)}
                     onContextMenu={(event) => openMenu(event, file)}
                     onTouchStart={(event) => startLongPress(event, file)}
                     onTouchEnd={cancelLongPress}
                     onTouchMove={cancelLongPress}
                   >
+                    <div className="absolute left-2 top-2 z-10">{renderSelectionButton(file)}</div>
                     <div className="flex aspect-video items-center justify-center overflow-hidden bg-gray-900">
                       {file.mime_type?.startsWith('image/') ? (
                         <img
@@ -641,13 +869,16 @@ export const FileExplorer = () => {
                   <div
                     key={folder.id}
                     data-drive-item
-                    className="min-w-0 cursor-pointer rounded-lg border border-transparent bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover"
+                    className={`relative min-w-0 cursor-pointer rounded-lg border bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover ${
+                      isSelected(folder) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-transparent'
+                    }`}
                     onClick={(event) => handleFolderItemClick(event, folder)}
                     onContextMenu={(event) => openMenu(event, folder)}
                     onTouchStart={(event) => startLongPress(event, folder)}
                     onTouchEnd={cancelLongPress}
                     onTouchMove={cancelLongPress}
                   >
+                    <div className="absolute left-2 top-2">{renderSelectionButton(folder)}</div>
                     <div className="mb-3 flex justify-center">
                       {folder.id === TRASH_FOLDER_ID
                         ? <Trash2 className="text-gray-400" size={40} />
@@ -660,13 +891,16 @@ export const FileExplorer = () => {
                   <div
                     key={file.id}
                     data-drive-item
-                    className="min-w-0 cursor-pointer rounded-lg border border-transparent bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover"
+                    className={`relative min-w-0 cursor-pointer rounded-lg border bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover ${
+                      isSelected(file) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-transparent'
+                    }`}
                     onClick={(event) => handleFileItemClick(event, file)}
                     onContextMenu={(event) => openMenu(event, file)}
                     onTouchStart={(event) => startLongPress(event, file)}
                     onTouchEnd={cancelLongPress}
                     onTouchMove={cancelLongPress}
                   >
+                    <div className="absolute left-2 top-2">{renderSelectionButton(file)}</div>
                     <div className="mb-3 flex justify-center">
                       <File className="text-gray-400" size={40} />
                     </div>
@@ -729,6 +963,15 @@ export const FileExplorer = () => {
                 <Upload size={16} />
                 Загрузить файлы
               </button>
+              {!menu.item && selectableItems.length > 0 && (
+                <button
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
+                  onClick={selectAllVisible}
+                >
+                  <CheckSquare size={16} />
+                  Выбрать все
+                </button>
+              )}
             </>
           )}
 
@@ -780,6 +1023,16 @@ export const FileExplorer = () => {
                 Скачать
               </button>
             </>
+          )}
+
+          {!isTrash && menu.item?.id === STORAGE_FOLDER_ID && (
+            <button
+              className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-gray-200 hover:bg-bg-hover"
+              onClick={openTelegramAction}
+            >
+              <ExternalLink size={16} />
+              Открыть в Telegram
+            </button>
           )}
 
           {!isTrash && menu.item && !isSystemFolder(menu.item) && (
