@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
-import { fetchStatus, fetchStats, setProtocolEnabled } from './api'
+import { fetchAuditLog, fetchStatus, fetchStats, setProtocolEnabled } from './api'
 
 const AppContext = createContext()
 
@@ -15,6 +15,7 @@ export const AppProvider = ({ children }) => {
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [transfers, setTransfers] = useState([])
   const [stats, setStats] = useState({ files: 0, folders: 0, totalSize: 0 })
+  const [auditLog, setAuditLog] = useState([])
   const cancelHandlers = useRef(new Map())
 
   const statusMessages = {
@@ -46,15 +47,26 @@ export const AppProvider = ({ children }) => {
     }
   }, [])
 
+  const loadAuditLog = useCallback(async () => {
+    try {
+      const data = await fetchAuditLog(8)
+      setAuditLog(data)
+    } catch {
+      // бэкенд недоступен
+    }
+  }, [])
+
   useEffect(() => {
     checkStatus()
     loadStats()
+    loadAuditLog()
     const interval = setInterval(() => {
       checkStatus()
       loadStats()
+      loadAuditLog()
     }, 5000)
     return () => clearInterval(interval)
-  }, [checkStatus, loadStats])
+  }, [checkStatus, loadStats, loadAuditLog])
 
   const toggleFtp = async () => {
     const enabled = !ftpEnabled
@@ -62,6 +74,7 @@ export const AppProvider = ({ children }) => {
     try {
       await setProtocolEnabled('ftp', enabled)
       await checkStatus()
+      await loadAuditLog()
     } catch {
       setFtpEnabled(!enabled)
     }
@@ -73,6 +86,7 @@ export const AppProvider = ({ children }) => {
     try {
       await setProtocolEnabled('webdav', enabled)
       await checkStatus()
+      await loadAuditLog()
     } catch {
       setWebdavEnabled(!enabled)
     }
@@ -143,6 +157,7 @@ export const AppProvider = ({ children }) => {
         downloadProgress,
         transfers,
         stats,
+        auditLog,
         setUploadProgress,
         setDownloadProgress,
         createTransfer,
@@ -152,6 +167,7 @@ export const AppProvider = ({ children }) => {
         registerTransferCancel,
         unregisterTransferCancel,
         loadStats,
+        loadAuditLog,
         checkStatus,
         toggleFtp,
         toggleWebdav

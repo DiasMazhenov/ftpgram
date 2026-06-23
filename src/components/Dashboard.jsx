@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ChevronDown, Download, Globe, RefreshCw, Server, Upload, X } from 'lucide-react'
+import { Activity, ChevronDown, Download, Globe, RefreshCw, Server, Upload, X } from 'lucide-react'
 import packageJson from '../../package.json'
 import { useApp } from '../AppContext'
 
@@ -43,6 +43,60 @@ const transferStatusText = {
   done: 'Готово',
   error: 'Ошибка',
   canceled: 'Отменено'
+}
+
+const auditActionText = {
+  upload_file: 'Загружен файл',
+  create_folder: 'Создана папка',
+  rename_folder: 'Переименована папка',
+  trash_folder: 'Папка в корзине',
+  rename_file: 'Переименован файл',
+  delete_file: 'Удален файл',
+  restore_item: 'Восстановлено',
+  delete_forever: 'Удалено навсегда',
+  empty_trash: 'Корзина очищена',
+  move_item: 'Перемещено',
+  toggle_protocol: 'Протокол изменен',
+  reindex: 'Индекс обновлен'
+}
+
+const formatAuditTime = value => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
+
+const AuditLog = ({ items }) => {
+  if (!items.length) return null
+
+  return (
+    <section className="rounded-lg border border-gray-800 bg-bg-card p-4">
+      <div className="mb-3 flex items-center gap-3">
+        <Activity className="shrink-0 text-accent-primary" size={20} />
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold text-gray-200">Журнал</h2>
+          <p className="mt-0.5 truncate text-xs text-gray-500">Последние действия</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {items.slice(0, 5).map(item => (
+          <div key={item.id} className="flex min-w-0 items-center justify-between gap-3 rounded-md bg-gray-900/50 px-3 py-2">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-gray-200">
+                {auditActionText[item.action] || item.action}
+              </p>
+              <p className="mt-0.5 truncate text-xs text-gray-500" title={item.item_name || ''}>
+                {item.item_name || 'Система'}
+              </p>
+            </div>
+            <span className="shrink-0 text-xs tabular-nums text-gray-500">{formatAuditTime(item.created_at)}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 const TransferQueue = ({ transfers, cancelTransfer, clearFinishedTransfers }) => {
@@ -129,6 +183,7 @@ export const Dashboard = () => {
     downloadProgress,
     transfers,
     stats,
+    auditLog,
     cancelTransfer,
     clearFinishedTransfers,
     checkStatus,
@@ -287,6 +342,8 @@ export const Dashboard = () => {
           cancelTransfer={cancelTransfer}
           clearFinishedTransfers={clearFinishedTransfers}
         />
+
+        <AuditLog items={auditLog} />
 
         {uploadProgress > 0 && (
           <TransferStatus

@@ -13,6 +13,12 @@ export async function fetchStats() {
   return res.json()
 }
 
+export async function fetchAuditLog(limit = 10) {
+  const res = await fetch(`${API_URL}/api/audit-log?limit=${encodeURIComponent(limit)}`)
+  if (!res.ok) throw new Error(`Журнал: ${res.status}`)
+  return res.json()
+}
+
 export async function fetchFiles(folderId = null) {
   const url = folderId
     ? `${API_URL}/api/files?folder=${encodeURIComponent(folderId)}`

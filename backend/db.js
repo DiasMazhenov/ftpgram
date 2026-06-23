@@ -42,6 +42,18 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_files_folder ON files(folder_id);
     CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
 
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      item_type TEXT,
+      item_id TEXT,
+      item_name TEXT,
+      details TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
+
     DELETE FROM files
     WHERE folder_id IN (SELECT id FROM folders WHERE id LIKE 'chat_%');
 
@@ -100,6 +112,39 @@ export function initDatabase() {
 
 export function getDatabase() {
   return db
+}
+
+export function logAudit(action, {
+  itemType = null,
+  itemId = null,
+  itemName = null,
+  details = null
+} = {}) {
+  const id = `audit_${crypto.randomUUID()}`
+  db.prepare(`
+    INSERT INTO audit_logs (id, action, item_type, item_id, item_name, details)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    action,
+    itemType,
+    itemId,
+    itemName,
+    details ? JSON.stringify(details) : null
+  )
+  return id
+}
+
+export function getAuditLogs(limit = 20) {
+  return db.prepare(`
+    SELECT id, action, item_type, item_id, item_name, details, created_at
+    FROM audit_logs
+    ORDER BY datetime(created_at) DESC
+    LIMIT ?
+  `).all(Math.max(1, Math.min(Number(limit) || 20, 100))).map(entry => ({
+    ...entry,
+    details: entry.details ? JSON.parse(entry.details) : null
+  }))
 }
 
 export function getFileTree(folderId = null) {

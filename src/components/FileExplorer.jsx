@@ -54,7 +54,7 @@ export const FileExplorer = () => {
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(null)
   const [query, setQuery] = useState('')
-  const [viewMode, setViewMode] = useState('icons')
+  const [viewMode, setViewMode] = useState('table')
   const [sortBy, setSortBy] = useState('name')
   const [sortDescending, setSortDescending] = useState(false)
   const [previewFile, setPreviewFile] = useState(null)
@@ -70,6 +70,7 @@ export const FileExplorer = () => {
     updateTransfer,
     registerTransferCancel,
     unregisterTransferCancel,
+    loadAuditLog,
     loadStats
   } = useApp()
   const isSystemFolder = (item) => ['telegram_saved_messages', STORAGE_FOLDER_ID, TRASH_FOLDER_ID].includes(item?.id)
@@ -252,7 +253,7 @@ export const FileExplorer = () => {
     try {
       const concurrency = Math.min(2, files.length)
       await Promise.all(Array.from({ length: concurrency }, worker))
-      if (successCount > 0) await Promise.all([refresh(), loadStats()])
+      if (successCount > 0) await Promise.all([refresh(), loadStats(), loadAuditLog()])
       if (failedCount > 0) window.alert(`Не удалось загрузить файлов: ${failedCount}`)
     } finally {
       setUploading(null)
@@ -293,7 +294,7 @@ export const FileExplorer = () => {
     try {
       await Promise.all(movableItems.map(item => moveItem(item.type, item.id, targetFolderId)))
       clearSelection()
-      await refresh()
+      await Promise.all([refresh(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -380,7 +381,7 @@ export const FileExplorer = () => {
     if (!name?.trim()) return
     try {
       await createFolder(name, currentFolder)
-      await refresh()
+      await Promise.all([refresh(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -396,7 +397,7 @@ export const FileExplorer = () => {
         if (currentFolder === item.id) setFolderName(name)
         setFolderPath(path => path.map(pathItem => pathItem.id === item.id ? { ...pathItem, name } : pathItem))
       }
-      await refresh()
+      await Promise.all([refresh(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -408,7 +409,7 @@ export const FileExplorer = () => {
     if (!window.confirm(`Удалить ${label} "${item.name}"?`)) return
     try {
       await deleteItem(item.type, item.id)
-      await refresh()
+      await Promise.all([refresh(), loadStats(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -421,7 +422,7 @@ export const FileExplorer = () => {
     try {
       await Promise.all(selectedActionItems.map(item => deleteItem(item.type, item.id)))
       clearSelection()
-      await Promise.all([refresh(), loadStats()])
+      await Promise.all([refresh(), loadStats(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -431,7 +432,7 @@ export const FileExplorer = () => {
     closeMenu()
     try {
       await restoreItem(item.type, item.id)
-      await Promise.all([refresh(), loadStats()])
+      await Promise.all([refresh(), loadStats(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -443,7 +444,7 @@ export const FileExplorer = () => {
     try {
       await Promise.all(selectedItems.map(item => restoreItem(item.type, item.id)))
       clearSelection()
-      await Promise.all([refresh(), loadStats()])
+      await Promise.all([refresh(), loadStats(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -454,7 +455,7 @@ export const FileExplorer = () => {
     if (!window.confirm(`Удалить навсегда "${item.name}"? Это действие нельзя отменить.`)) return
     try {
       await deleteForever(item.type, item.id)
-      await Promise.all([refresh(), loadStats()])
+      await Promise.all([refresh(), loadStats(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -467,7 +468,7 @@ export const FileExplorer = () => {
     try {
       await Promise.all(selectedItems.map(item => deleteForever(item.type, item.id)))
       clearSelection()
-      await Promise.all([refresh(), loadStats()])
+      await Promise.all([refresh(), loadStats(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -478,7 +479,7 @@ export const FileExplorer = () => {
     if (!window.confirm('Очистить корзину навсегда? Это действие нельзя отменить.')) return
     try {
       await emptyTrash()
-      await Promise.all([refresh(), loadStats()])
+      await Promise.all([refresh(), loadStats(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -551,7 +552,7 @@ export const FileExplorer = () => {
 
       const target = index === 0 ? null : folderOptions[index - 1]
       await moveItem(item.type, item.id, target?.id || null)
-      await refresh()
+      await Promise.all([refresh(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }
@@ -576,7 +577,7 @@ export const FileExplorer = () => {
       const target = index === 0 ? null : folderOptions[index - 1]
       await Promise.all(selectedActionItems.map(item => moveItem(item.type, item.id, target?.id || null)))
       clearSelection()
-      await refresh()
+      await Promise.all([refresh(), loadAuditLog()])
     } catch (error) {
       window.alert(error.message)
     }

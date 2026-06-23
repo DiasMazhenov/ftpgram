@@ -10,6 +10,7 @@ import { pipeline } from 'node:stream/promises'
 import {
   initDatabase,
   getDatabase,
+  getAuditLogs,
   getFileTree,
   getFileById,
   SAVED_MESSAGES_FOLDER_ID,
@@ -19,6 +20,7 @@ import {
   getTrashItems,
   createFolder,
   deleteFile,
+  logAudit,
   moveFile,
   moveFolder,
   permanentlyDeleteTrashItem,
@@ -128,6 +130,12 @@ app.patch('/api/protocols/:name', async (req, res) => {
       else await stopFtpServer()
     }
 
+    logAudit('toggle_protocol', {
+      itemType: 'protocol',
+      itemId: name,
+      itemName: name.toUpperCase(),
+      details: { enabled }
+    })
     res.json({ success: true, name, enabled })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -174,10 +182,19 @@ app.get('/api/trash', (req, res) => {
   res.json(getTrashItems())
 })
 
+app.get('/api/audit-log', (req, res) => {
+  res.json(getAuditLogs(req.query.limit || 20))
+})
+
 // Принудительная переиндексация
 app.post('/api/reindex', async (req, res) => {
   try {
     await reindex()
+    logAudit('reindex', {
+      itemType: 'system',
+      itemId: 'telegram',
+      itemName: 'Telegram'
+    })
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -211,6 +228,12 @@ app.post('/api/files/upload', async (req, res) => {
       req.headers['content-type'] || 'application/octet-stream',
       folderId
     )
+    logAudit('upload_file', {
+      itemType: 'file',
+      itemId: file.id,
+      itemName: file.name,
+      details: { folderId: file.folder_id, size: file.size }
+    })
     res.status(201).json(file)
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -298,7 +321,14 @@ app.post('/api/folders', (req, res) => {
   try {
     const { name, parentId = null } = req.body
     if (!name?.trim()) return res.status(400).json({ error: 'Название папки обязательно' })
-    res.status(201).json(createFolder(name, parentId))
+    const folder = createFolder(name, parentId)
+    logAudit('create_folder', {
+      itemType: 'folder',
+      itemId: folder.id,
+      itemName: folder.name,
+      details: { parentId }
+    })
+    res.status(201).json(folder)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -307,7 +337,14 @@ app.post('/api/folders', (req, res) => {
 app.patch('/api/folders/:id', (req, res) => {
   const { name } = req.body
   if (!name?.trim()) return res.status(400).json({ error: 'Название папки обязательно' })
+  const folder = getFileById(req.params.id)
   renameFolder(req.params.id, name)
+  logAudit('rename_folder', {
+    itemType: 'folder',
+    itemId: req.params.id,
+    itemName: name,
+    details: { from: folder?.name, to: name }
+  })
   res.json(getFileById(req.params.id))
 })
 
@@ -316,7 +353,13 @@ app.delete('/api/folders/:id', async (req, res) => {
     if ([SAVED_MESSAGES_FOLDER_ID, STORAGE_FOLDER_ID].includes(req.params.id)) {
       return res.status(400).json({ error: 'Системную папку нельзя удалить' })
     }
+    const folder = getFileById(req.params.id)
     trashFolder(req.params.id)
+    logAudit('trash_folder', {
+      itemType: 'folder',
+      itemId: req.params.id,
+      itemName: folder?.name
+    })
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -326,7 +369,14 @@ app.delete('/api/folders/:id', async (req, res) => {
 app.patch('/api/files/:id', (req, res) => {
   const { name } = req.body
   if (!name?.trim()) return res.status(400).json({ error: 'Название файла обязательно' })
+  const file = getFileById(req.params.id)
   renameFile(req.params.id, name)
+  logAudit('rename_file', {
+    itemType: 'file',
+    itemId: req.params.id,
+    itemName: name,
+    details: { from: file?.name, to: name }
+  })
   res.json(getFileById(req.params.id))
 })
 
@@ -337,6 +387,12 @@ app.delete('/api/files/:id', async (req, res) => {
     if (file.deleted_at) return res.status(404).json({ error: 'Файл уже в корзине' })
     await deleteTelegramFiles([file])
     deleteFile(req.params.id)
+    logAudit('delete_file', {
+      itemType: 'file',
+      itemId: req.params.id,
+      itemName: file.name,
+      details: { source: file.telegram_source }
+    })
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -347,7 +403,13 @@ app.post('/api/trash/:type/:id/restore', (req, res) => {
   try {
     const { type, id } = req.params
     if (!['file', 'folder'].includes(type)) return res.status(400).json({ error: 'Неизвестный тип элемента' })
+    const item = getFileById(id)
     restoreTrashItem(type, id)
+    logAudit('restore_item', {
+      itemType: type,
+      itemId: id,
+      itemName: item?.name
+    })
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -358,9 +420,16 @@ app.delete('/api/trash/:type/:id', async (req, res) => {
   try {
     const { type, id } = req.params
     if (!['file', 'folder'].includes(type)) return res.status(400).json({ error: 'Неизвестный тип элемента' })
+    const item = getFileById(id)
     const files = getTrashFiles(type, id)
     await deleteTelegramFiles(files)
     permanentlyDeleteTrashItem(type, id)
+    logAudit('delete_forever', {
+      itemType: type,
+      itemId: id,
+      itemName: item?.name,
+      details: { files: files.length }
+    })
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -369,7 +438,15 @@ app.delete('/api/trash/:type/:id', async (req, res) => {
 
 app.delete('/api/trash', async (req, res) => {
   try {
-    await purgeTrash(getTrashItems())
+    const items = getTrashItems()
+    const filesCount = items.reduce((count, item) => count + getTrashFiles(item.type, item.id).length, 0)
+    await purgeTrash(items)
+    logAudit('empty_trash', {
+      itemType: 'trash',
+      itemId: 'virtual_trash',
+      itemName: 'Корзина',
+      details: { items: items.length, files: filesCount }
+    })
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -379,11 +456,18 @@ app.delete('/api/trash', async (req, res) => {
 app.post('/api/move', (req, res) => {
   const { id, type, folderId = null } = req.body
   if (!id || !type) return res.status(400).json({ error: 'id и type обязательны' })
+  const item = getFileById(id)
 
   if (type === 'folder') moveFolder(id, folderId)
   else if (type === 'file') moveFile(id, folderId)
   else return res.status(400).json({ error: 'Неизвестный тип элемента' })
 
+  logAudit('move_item', {
+    itemType: type,
+    itemId: id,
+    itemName: item?.name,
+    details: { folderId }
+  })
   res.json({ success: true })
 })
 
