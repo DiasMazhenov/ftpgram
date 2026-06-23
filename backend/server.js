@@ -51,6 +51,7 @@ const app = express()
 const PORT = process.env.PORT || 4000
 const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
 const DOWNLOAD_CACHE_DIR = process.env.DOWNLOAD_CACHE_DIR || path.join(os.tmpdir(), 'ftpgram-download-cache')
+const APP_TOKEN = process.env.FTPGRAM_APP_TOKEN || process.env.FTPGRAM_AUTH_TOKEN || ''
 const downloadCacheJobs = new Map()
 const protocolState = {
   ftp: process.env.FTP_ENABLED !== 'false',
@@ -97,6 +98,25 @@ function getPublicBaseUrl(req) {
   return `${protocol}://${req.get('host')}`
 }
 
+function getRequestToken(req) {
+  const authHeader = req.get('authorization') || ''
+  if (authHeader.startsWith('Bearer ')) return authHeader.slice(7)
+  return req.get('x-ftpgram-token') || req.query.appToken || ''
+}
+
+function isValidAppToken(token) {
+  if (!APP_TOKEN) return true
+  const expected = Buffer.from(APP_TOKEN)
+  const received = Buffer.from(String(token || ''))
+  return received.length === expected.length && crypto.timingSafeEqual(received, expected)
+}
+
+function requireAppAuth(req, res, next) {
+  if (req.path.startsWith('/public/files/')) return next()
+  if (isValidAppToken(getRequestToken(req))) return next()
+  res.status(401).json({ error: 'Требуется вход в FTPgram' })
+}
+
 function getDownloadCachePath(file) {
   const hash = crypto
     .createHash('sha256')
@@ -139,6 +159,22 @@ async function ensureCachedDownload(file) {
   downloadCacheJobs.set(cachePath, job)
   return job
 }
+
+app.get('/api/auth/status', (req, res) => {
+  const required = Boolean(APP_TOKEN)
+  res.json({
+    required,
+    authenticated: !required || isValidAppToken(getRequestToken(req))
+  })
+})
+
+app.post('/api/auth/verify', (req, res) => {
+  if (!APP_TOKEN) return res.json({ success: true })
+  if (!isValidAppToken(req.body?.token)) return res.status(401).json({ error: 'Неверный ключ доступа' })
+  res.json({ success: true })
+})
+
+app.use('/api', requireAppAuth)
 
 // Статус
 app.get('/api/status', (req, res) => {

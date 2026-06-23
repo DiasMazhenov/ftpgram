@@ -1,20 +1,58 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
+const AUTH_STORAGE_KEY = 'ftpgram_app_token'
+
+export function getAppToken() {
+  return window.localStorage.getItem(AUTH_STORAGE_KEY) || ''
+}
+
+export function setAppToken(token) {
+  window.localStorage.setItem(AUTH_STORAGE_KEY, token)
+}
+
+export function clearAppToken() {
+  window.localStorage.removeItem(AUTH_STORAGE_KEY)
+}
+
+function authHeaders(headers = {}) {
+  const token = getAppToken()
+  return token ? { ...headers, Authorization: `Bearer ${token}` } : headers
+}
+
+export async function fetchAuthStatus() {
+  const res = await fetch(`${API_URL}/api/auth/status`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Авторизация: ${res.status}`)
+  return res.json()
+}
+
+export async function verifyAppToken(token) {
+  const res = await fetch(`${API_URL}/api/auth/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token })
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || `Авторизация: ${res.status}`)
+  }
+  setAppToken(token)
+  return res.json()
+}
 
 export async function fetchStatus() {
-  const res = await fetch(`${API_URL}/api/status`)
+  const res = await fetch(`${API_URL}/api/status`, { headers: authHeaders() })
   if (!res.ok) throw new Error(`Статус: ${res.status}`)
   return res.json()
 }
 
 export async function fetchStats() {
-  const res = await fetch(`${API_URL}/api/stats`)
+  const res = await fetch(`${API_URL}/api/stats`, { headers: authHeaders() })
   if (!res.ok) throw new Error(`Статистика: ${res.status}`)
   return res.json()
 }
 
 export async function fetchAuditLog(limit = 10) {
-  const res = await fetch(`${API_URL}/api/audit-log?limit=${encodeURIComponent(limit)}`)
+  const res = await fetch(`${API_URL}/api/audit-log?limit=${encodeURIComponent(limit)}`, { headers: authHeaders() })
   if (!res.ok) throw new Error(`Журнал: ${res.status}`)
   return res.json()
 }
@@ -23,20 +61,20 @@ export async function fetchFiles(folderId = null) {
   const url = folderId
     ? `${API_URL}/api/files?folder=${encodeURIComponent(folderId)}`
     : `${API_URL}/api/files`
-  const res = await fetch(url)
+  const res = await fetch(url, { headers: authHeaders() })
   if (!res.ok) throw new Error(`Файлы: ${res.status}`)
   return res.json()
 }
 
 export async function fetchTrash() {
-  const res = await fetch(`${API_URL}/api/trash`)
+  const res = await fetch(`${API_URL}/api/trash`, { headers: authHeaders() })
   if (!res.ok) throw new Error(`Корзина: ${res.status}`)
   return res.json()
 }
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: authHeaders({ 'Content-Type': 'application/json', ...(options.headers || {}) }),
     ...options
   })
   if (!res.ok) {
@@ -110,7 +148,11 @@ export function prepareFileDownload(id) {
 }
 
 export function getFileUrl(id, inline = false) {
-  return `${API_URL}/api/files/${encodeURIComponent(id)}/download${inline ? '?inline=1' : ''}`
+  const url = new URL(`${API_URL}/api/files/${encodeURIComponent(id)}/download`)
+  if (inline) url.searchParams.set('inline', '1')
+  const token = getAppToken()
+  if (token) url.searchParams.set('appToken', token)
+  return url.toString()
 }
 
 export function isOfficeFile(file) {
@@ -159,6 +201,8 @@ export function uploadFile(file, folderId = null, onProgress = () => {}, signal 
     xhr.open('POST', `${API_URL}/api/files/upload`)
     xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
     xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name))
+    const token = getAppToken()
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     if (folderId) xhr.setRequestHeader('X-Folder-Id', folderId)
 
     xhr.upload.addEventListener('progress', event => {

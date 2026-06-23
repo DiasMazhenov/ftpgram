@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
-import { fetchAuditLog, fetchStatus, fetchStats, setProtocolEnabled } from './api'
+import { clearAppToken, fetchAuditLog, fetchAuthStatus, fetchStatus, fetchStats, setProtocolEnabled, verifyAppToken } from './api'
 
 const AppContext = createContext()
 
@@ -16,6 +16,10 @@ export const AppProvider = ({ children }) => {
   const [transfers, setTransfers] = useState([])
   const [stats, setStats] = useState({ files: 0, folders: 0, totalSize: 0 })
   const [auditLog, setAuditLog] = useState([])
+  const [authChecked, setAuthChecked] = useState(false)
+  const [authRequired, setAuthRequired] = useState(false)
+  const [authenticated, setAuthenticated] = useState(false)
+  const [authError, setAuthError] = useState('')
   const cancelHandlers = useRef(new Map())
 
   const statusMessages = {
@@ -56,7 +60,27 @@ export const AppProvider = ({ children }) => {
     }
   }, [])
 
+  const checkAuth = useCallback(async () => {
+    try {
+      const status = await fetchAuthStatus()
+      setAuthRequired(Boolean(status.required))
+      setAuthenticated(Boolean(status.authenticated))
+      setAuthError('')
+    } catch (error) {
+      setAuthRequired(true)
+      setAuthenticated(false)
+      setAuthError(error.message)
+    } finally {
+      setAuthChecked(true)
+    }
+  }, [])
+
   useEffect(() => {
+    checkAuth()
+  }, [checkAuth])
+
+  useEffect(() => {
+    if (!authChecked || !authenticated) return undefined
     checkStatus()
     loadStats()
     loadAuditLog()
@@ -66,7 +90,17 @@ export const AppProvider = ({ children }) => {
       loadAuditLog()
     }, 5000)
     return () => clearInterval(interval)
-  }, [checkStatus, loadStats, loadAuditLog])
+  }, [authChecked, authenticated, checkStatus, loadStats, loadAuditLog])
+
+  const login = async (token) => {
+    await verifyAppToken(token)
+    await checkAuth()
+  }
+
+  const logout = () => {
+    clearAppToken()
+    setAuthenticated(!authRequired)
+  }
 
   const toggleFtp = async () => {
     const enabled = !ftpEnabled
@@ -158,6 +192,10 @@ export const AppProvider = ({ children }) => {
         transfers,
         stats,
         auditLog,
+        authChecked,
+        authRequired,
+        authenticated,
+        authError,
         setUploadProgress,
         setDownloadProgress,
         createTransfer,
@@ -169,6 +207,8 @@ export const AppProvider = ({ children }) => {
         loadStats,
         loadAuditLog,
         checkStatus,
+        login,
+        logout,
         toggleFtp,
         toggleWebdav
       }}

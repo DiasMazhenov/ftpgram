@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Activity, ChevronDown, Download, Globe, RefreshCw, Server, Upload, X } from 'lucide-react'
+import { Activity, ChevronDown, Download, Globe, LogOut, RefreshCw, Server, Upload, X } from 'lucide-react'
 import packageJson from '../../package.json'
 import { useApp } from '../AppContext'
 
@@ -184,9 +184,11 @@ export const Dashboard = () => {
     transfers,
     stats,
     auditLog,
+    authRequired,
     cancelTransfer,
     clearFinishedTransfers,
     checkStatus,
+    logout,
     toggleFtp,
     toggleWebdav
   } = useApp()
@@ -223,15 +225,37 @@ export const Dashboard = () => {
               <span className="shrink-0 text-xs tabular-nums text-gray-500">{packageJson.version}</span>
             </div>
           </div>
-          <button
-            onClick={checkStatus}
-            className="hidden size-9 shrink-0 items-center justify-center rounded-md bg-bg-card text-gray-300 hover:bg-bg-hover hover:text-white lg:flex"
-            aria-label="Проверить подключение"
-            title="Проверить подключение"
-          >
-            <RefreshCw size={17} className={connectionStatus === 'connecting' ? 'animate-spin' : ''} />
-          </button>
+          <div className="hidden shrink-0 items-center gap-2 lg:flex">
+            {authRequired && (
+              <button
+                onClick={logout}
+                className="flex size-9 items-center justify-center rounded-md bg-bg-card text-gray-300 hover:bg-bg-hover hover:text-white"
+                aria-label="Выйти"
+                title="Выйти"
+              >
+                <LogOut size={17} />
+              </button>
+            )}
+            <button
+              onClick={checkStatus}
+              className="flex size-9 items-center justify-center rounded-md bg-bg-card text-gray-300 hover:bg-bg-hover hover:text-white"
+              aria-label="Проверить подключение"
+              title="Проверить подключение"
+            >
+              <RefreshCw size={17} className={connectionStatus === 'connecting' ? 'animate-spin' : ''} />
+            </button>
+          </div>
           <div className="flex shrink-0 items-center gap-2 lg:hidden">
+            {authRequired && (
+              <button
+                onClick={logout}
+                className="flex size-9 items-center justify-center rounded-md bg-bg-card text-gray-300 hover:bg-bg-hover hover:text-white"
+                aria-label="Выйти"
+                title="Выйти"
+              >
+                <LogOut size={17} />
+              </button>
+            )}
             <button
               onClick={checkStatus}
               className="flex size-9 items-center justify-center rounded-md bg-bg-card text-gray-300 hover:bg-bg-hover hover:text-white"

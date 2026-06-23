@@ -68,6 +68,19 @@ variable в Render.
 GOOGLE_VIEWER_SECRET="long-random-secret"
 ```
 
+## Вход в FTPgram
+
+По умолчанию локальный UI и REST API работают без отдельного входа. Чтобы
+закрыть приложение ключом доступа, задай:
+
+```bash
+FTPGRAM_APP_TOKEN="long-random-token"
+```
+
+После этого frontend покажет экран входа, а REST API будет принимать запросы
+только с `Authorization: Bearer <token>`. Для локального предпросмотра и
+скачивания тот же ключ добавляется в file URL.
+
 ## WebDAV и FTP
 
 WebDAV доступен на основном backend:
