@@ -124,6 +124,7 @@ export const Dashboard = () => {
     connectionStatusText,
     ftpEnabled,
     webdavEnabled,
+    protocols,
     uploadProgress,
     downloadProgress,
     transfers,
@@ -246,8 +247,8 @@ export const Dashboard = () => {
 
           <div className="mt-4 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2">
             {[
-              { name: 'FTP', port: 21, enabled: ftpEnabled, toggle: toggleFtp },
-              { name: 'WebDAV', port: 80, enabled: webdavEnabled, toggle: toggleWebdav }
+              { name: 'FTP', detail: protocols.ftp?.url || 'ftp://localhost:2121', enabled: ftpEnabled, toggle: toggleFtp },
+              { name: 'WebDAV', detail: protocols.webdav?.url || 'http://localhost:4000/webdav', enabled: webdavEnabled, toggle: toggleWebdav }
             ].map(protocol => (
               <div
                 key={protocol.name}
@@ -274,7 +275,7 @@ export const Dashboard = () => {
                   </button>
                 </div>
                 <p className="mt-2 truncate text-xs text-gray-400">
-                  {protocol.enabled ? `Порт ${protocol.port}` : 'Отключен'}
+                  {protocol.enabled ? protocol.detail : 'Отключен'}
                 </p>
               </div>
             ))}

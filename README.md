@@ -50,7 +50,8 @@ TELEGRAM_STORAGE_CHAT="https://t.me/+PRIVATE_INVITE_HASH"
 Добавь туда аккаунт, под которым работает MTProto-сессия. Можно указать приватную
 invite-ссылку, username или id канала в `TELEGRAM_STORAGE_CHAT`. Файлы из
 Telegram «Избранное» индексируются в отдельную системную папку.
-Значение `TELEGRAM_INDEX_LIMIT=0` индексирует всю историю файлов.
+`TELEGRAM_INDEX_LIMIT` задает максимальное количество сообщений для индексации.
+По умолчанию используется `5000`.
 Удаление работает через корзину: файлы можно восстановить, удалить навсегда или
 дождаться автоочистки через 30 дней.
 
@@ -63,6 +64,34 @@ variable в Render.
 ```bash
 GOOGLE_VIEWER_SECRET="long-random-secret"
 ```
+
+## WebDAV и FTP
+
+WebDAV доступен на основном backend:
+
+```bash
+http://localhost:4000/webdav
+```
+
+FTP запускается отдельным локальным сервером:
+
+```bash
+ftp://localhost:2121
+```
+
+Порт `2121` используется по умолчанию, потому что `21` часто требует root-права
+на macOS/Linux. Можно переопределить:
+
+```bash
+FTP_PORT=21
+FTP_PASV_MIN=40000
+FTP_PASV_MAX=40100
+FTP_PASV_URL=127.0.0.1
+```
+
+Если задать `FTPGRAM_PROTOCOL_USER` и `FTPGRAM_PROTOCOL_PASSWORD`, WebDAV и FTP
+будут требовать логин и пароль. Без этих переменных протоколы работают локально
+без авторизации.
 
 ## Структура проекта
 

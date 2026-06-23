@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
-import { fetchStatus, fetchStats } from './api'
+import { fetchStatus, fetchStats, setProtocolEnabled } from './api'
 
 const AppContext = createContext()
 
@@ -7,6 +7,10 @@ export const AppProvider = ({ children }) => {
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
   const [ftpEnabled, setFtpEnabled] = useState(true)
   const [webdavEnabled, setWebdavEnabled] = useState(true)
+  const [protocols, setProtocols] = useState({
+    ftp: { enabled: true, port: 2121, url: 'ftp://localhost:2121' },
+    webdav: { enabled: true, path: '/webdav', url: 'http://localhost:4000/webdav' }
+  })
   const [uploadProgress, setUploadProgress] = useState(0)
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [transfers, setTransfers] = useState([])
@@ -23,6 +27,11 @@ export const AppProvider = ({ children }) => {
     try {
       const status = await fetchStatus()
       setConnectionStatus(status.connected ? 'connected' : 'disconnected')
+      if (status.protocols) {
+        setProtocols(status.protocols)
+        setFtpEnabled(Boolean(status.protocols.ftp?.enabled))
+        setWebdavEnabled(Boolean(status.protocols.webdav?.enabled))
+      }
     } catch {
       setConnectionStatus('disconnected')
     }
@@ -47,8 +56,27 @@ export const AppProvider = ({ children }) => {
     return () => clearInterval(interval)
   }, [checkStatus, loadStats])
 
-  const toggleFtp = () => setFtpEnabled(!ftpEnabled)
-  const toggleWebdav = () => setWebdavEnabled(!webdavEnabled)
+  const toggleFtp = async () => {
+    const enabled = !ftpEnabled
+    setFtpEnabled(enabled)
+    try {
+      await setProtocolEnabled('ftp', enabled)
+      await checkStatus()
+    } catch {
+      setFtpEnabled(!enabled)
+    }
+  }
+
+  const toggleWebdav = async () => {
+    const enabled = !webdavEnabled
+    setWebdavEnabled(enabled)
+    try {
+      await setProtocolEnabled('webdav', enabled)
+      await checkStatus()
+    } catch {
+      setWebdavEnabled(!enabled)
+    }
+  }
 
   const createTransfer = useCallback((transfer) => {
     const id = transfer.id
@@ -110,6 +138,7 @@ export const AppProvider = ({ children }) => {
         connectionStatusText: statusMessages[connectionStatus],
         ftpEnabled,
         webdavEnabled,
+        protocols,
         uploadProgress,
         downloadProgress,
         transfers,

@@ -38,11 +38,25 @@ import {
   downloadTelegramFile,
   uploadFile
 } from './telegram.js'
+import {
+  createWebDavHandler,
+  isFtpServerRunning,
+  startFtpServer,
+  stopFtpServer
+} from './protocolServers.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
 const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
+const protocolState = {
+  ftp: process.env.FTP_ENABLED !== 'false',
+  webdav: process.env.WEBDAV_ENABLED !== 'false'
+}
 
+app.use('/webdav', createWebDavHandler({
+  mountPath: '/webdav',
+  isEnabled: () => protocolState.webdav
+}))
 app.use(cors())
 app.use(express.json())
 
@@ -81,7 +95,43 @@ function getPublicBaseUrl(req) {
 
 // Статус
 app.get('/api/status', (req, res) => {
-  res.json({ connected: isConnected(), timestamp: new Date().toISOString() })
+  const host = req.get('host') || `localhost:${PORT}`
+  const protocol = req.get('x-forwarded-proto') || req.protocol
+  const ftpPort = Number(process.env.FTP_PORT || 2121)
+  res.json({
+    connected: isConnected(),
+    timestamp: new Date().toISOString(),
+    protocols: {
+      ftp: {
+        enabled: protocolState.ftp && isFtpServerRunning(),
+        port: ftpPort,
+        url: `ftp://${process.env.FTP_PUBLIC_HOST || 'localhost'}:${ftpPort}`
+      },
+      webdav: {
+        enabled: protocolState.webdav,
+        path: '/webdav',
+        url: `${protocol}://${host}/webdav`
+      }
+    }
+  })
+})
+
+app.patch('/api/protocols/:name', async (req, res) => {
+  try {
+    const { name } = req.params
+    const enabled = Boolean(req.body?.enabled)
+    if (!['ftp', 'webdav'].includes(name)) return res.status(400).json({ error: 'Неизвестный протокол' })
+
+    protocolState[name] = enabled
+    if (name === 'ftp') {
+      if (enabled) startFtpServer()
+      else await stopFtpServer()
+    }
+
+    res.json({ success: true, name, enabled })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // Шаг 1: Отправить код
@@ -380,9 +430,11 @@ async function start() {
   setInterval(() => {
     purgeExpiredTrash().catch(err => console.error('❌ Ошибка автоочистки корзины:', err.message))
   }, 24 * 60 * 60 * 1000)
+  if (protocolState.ftp) startFtpServer()
 
   app.listen(PORT, () => {
     console.log(`🚀 FTPgram Backend: http://localhost:${PORT}`)
+    console.log(`📡 WebDAV: http://localhost:${PORT}/webdav`)
   })
 }
 

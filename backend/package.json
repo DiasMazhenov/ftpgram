@@ -9,10 +9,12 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "express": "^4.21.0",
+    "better-sqlite3": "^11.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "better-sqlite3": "^11.1.2",
-    "telegram": "^2.26.13"
+    "express": "^4.21.0",
+    "ftp-srv": "^4.6.3",
+    "telegram": "^2.26.13",
+    "webdav-server": "^2.6.2"
   }
 }

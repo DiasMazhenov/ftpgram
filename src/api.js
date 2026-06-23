@@ -83,6 +83,13 @@ export function moveItem(type, id, folderId = null) {
   })
 }
 
+export function setProtocolEnabled(name, enabled) {
+  return request(`/api/protocols/${name}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled })
+  })
+}
+
 export function downloadItem(id) {
   const link = document.createElement('a')
   link.href = getFileUrl(id)
