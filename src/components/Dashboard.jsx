@@ -28,7 +28,7 @@ const TransferStatus = ({ icon: Icon, title, progress, color, idleText }) => (
     </div>
     <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-700">
       <div
-        className={classes('h-full', progress > 0 ? 'bg-blue-500' : 'bg-gray-600')}
+        className={classes('h-full', progress > 0 ? 'bg-accent-primary' : 'bg-gray-600')}
         style={{ width: `${progress}%` }}
       />
     </div>
@@ -66,9 +66,10 @@ export const Dashboard = () => {
       <div className="border-b border-gray-800 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
+            <img src="/ftpgram.svg" alt="" className="size-8 shrink-0" />
             <span
               className={classes(
-                'size-3 shrink-0 rounded-full',
+                'size-2.5 shrink-0 rounded-full',
                 connectionStatus === 'connected'
                   ? 'bg-green-500'
                   : connectionStatus === 'connecting'
@@ -96,7 +97,7 @@ export const Dashboard = () => {
         <section className="rounded-lg border border-gray-800 bg-bg-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <Globe className="shrink-0 text-blue-400" size={20} />
+              <Globe className="shrink-0 text-accent-primary" size={20} />
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold text-gray-200">Telegram</h2>
                 <p className="mt-0.5 truncate text-xs text-gray-500">Подключение к API</p>
@@ -131,7 +132,7 @@ export const Dashboard = () => {
 
         <section className="rounded-lg border border-gray-800 bg-bg-card p-4">
           <div className="flex items-center gap-3">
-            <Server className="shrink-0 text-blue-400" size={20} />
+            <Server className="shrink-0 text-accent-primary" size={20} />
             <div className="min-w-0">
               <h2 className="truncate text-sm font-semibold text-gray-200">Локальный сервер</h2>
               <p className="mt-0.5 truncate text-xs text-gray-500">FTP и WebDAV</p>
@@ -180,7 +181,7 @@ export const Dashboard = () => {
             icon={Upload}
             title="Загрузка"
             progress={uploadProgress}
-            color="text-blue-400"
+            color="text-accent-primary"
             idleText="Ожидание загрузки"
           />
         )}

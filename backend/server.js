@@ -18,13 +18,13 @@ import {
   getTrashFiles,
   getTrashItems,
   createFolder,
+  deleteFile,
   moveFile,
   moveFolder,
   permanentlyDeleteTrashItem,
   renameFile,
   renameFolder,
   restoreTrashItem,
-  trashFile,
   trashFolder
 } from './db.js'
 import {
@@ -285,7 +285,8 @@ app.delete('/api/files/:id', async (req, res) => {
     const file = getFileById(req.params.id)
     if (!file) return res.status(404).json({ error: 'Файл не найден' })
     if (file.deleted_at) return res.status(404).json({ error: 'Файл уже в корзине' })
-    trashFile(req.params.id)
+    await deleteTelegramFiles([file])
+    deleteFile(req.params.id)
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })

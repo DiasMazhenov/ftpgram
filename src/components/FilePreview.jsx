@@ -174,7 +174,7 @@ export const FilePreview = ({ file, onClose }) => {
                   <button
                     type="button"
                     onClick={openGoogleDocs}
-                    className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-500"
+                    className="inline-flex h-9 items-center gap-2 rounded-md bg-accent-primary px-3 text-sm font-medium text-white hover:bg-accent-primary/90"
                   >
                     <ExternalLink size={16} />
                     Google Docs

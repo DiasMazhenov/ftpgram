@@ -48,6 +48,7 @@ export const FileExplorer = () => {
   const [loading, setLoading] = useState(true)
   const [currentFolder, setCurrentFolder] = useState(null)
   const [folderName, setFolderName] = useState('')
+  const [folderPath, setFolderPath] = useState([])
   const [menu, setMenu] = useState(null)
   const [touchTimer, setTouchTimer] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -96,21 +97,51 @@ export const FileExplorer = () => {
     if (folder.id === TRASH_FOLDER_ID) {
       setCurrentFolder(TRASH_FOLDER_ID)
       setFolderName('Корзина')
+      setFolderPath([{ id: TRASH_FOLDER_ID, name: 'Корзина' }])
       return
     }
     setCurrentFolder(folder.id)
     setFolderName(folder.name)
+    setFolderPath(path => {
+      const existingIndex = path.findIndex(item => item.id === folder.id)
+      if (existingIndex >= 0) return path.slice(0, existingIndex + 1)
+      return [...path, { id: folder.id, name: folder.name }]
+    })
   }
 
   const openTrash = () => {
     setCurrentFolder(TRASH_FOLDER_ID)
     setFolderName('Корзина')
+    setFolderPath([{ id: TRASH_FOLDER_ID, name: 'Корзина' }])
     closeMenu()
   }
 
   const handleBack = () => {
+    if (folderPath.length <= 1) {
+      setCurrentFolder(null)
+      setFolderName('')
+      setFolderPath([])
+      return
+    }
+    const nextPath = folderPath.slice(0, -1)
+    const parent = nextPath[nextPath.length - 1]
+    setCurrentFolder(parent.id)
+    setFolderName(parent.name)
+    setFolderPath(nextPath)
+  }
+
+  const openRoot = () => {
     setCurrentFolder(null)
     setFolderName('')
+    setFolderPath([])
+    closeMenu()
+  }
+
+  const openPathItem = (pathItem, index) => {
+    setCurrentFolder(pathItem.id)
+    setFolderName(pathItem.name)
+    setFolderPath(folderPath.slice(0, index + 1))
+    closeMenu()
   }
 
   const refresh = () => loadFiles(currentFolder)
@@ -277,7 +308,10 @@ export const FileExplorer = () => {
     if (!name?.trim() || name === item.name) return
     try {
       await renameItem(item.type, item.id, name)
-      if (item.type === 'folder' && currentFolder === item.id) setFolderName(name)
+      if (item.type === 'folder') {
+        if (currentFolder === item.id) setFolderName(name)
+        setFolderPath(path => path.map(pathItem => pathItem.id === item.id ? { ...pathItem, name } : pathItem))
+      }
       await refresh()
     } catch (error) {
       window.alert(error.message)
@@ -563,7 +597,7 @@ export const FileExplorer = () => {
         }}
         className={`flex size-5 shrink-0 items-center justify-center rounded border ${
           selected
-            ? 'border-blue-400 bg-blue-500 text-white'
+            ? 'border-accent-primary/70 bg-accent-primary text-white'
             : 'border-gray-600 bg-gray-900/60 text-transparent hover:border-gray-400'
         }`}
         aria-label={selected ? 'Снять выбор' : 'Выбрать'}
@@ -593,15 +627,38 @@ export const FileExplorer = () => {
                 <ArrowLeft size={20} className="text-gray-400" />
               </button>
             )}
-            <h1 className="min-w-0 truncate text-lg font-semibold text-white">
-              {currentFolder ? folderName : 'Мой диск'}
-            </h1>
+            <div className="min-w-0">
+              <h1 className="min-w-0 truncate text-lg font-semibold text-white">
+                {currentFolder ? folderName : 'Мой диск'}
+              </h1>
+              <nav className="mt-0.5 flex min-w-0 items-center gap-1 overflow-hidden text-xs text-gray-500" aria-label="Путь">
+                <button
+                  type="button"
+                  onClick={openRoot}
+                  className={`truncate hover:text-gray-200 ${!currentFolder ? 'text-accent-primary' : ''}`}
+                >
+                  Мой диск
+                </button>
+                {folderPath.map((pathItem, index) => (
+                  <React.Fragment key={pathItem.id}>
+                    <span className="shrink-0 text-gray-700">/</span>
+                    <button
+                      type="button"
+                      onClick={() => openPathItem(pathItem, index)}
+                      className={`truncate hover:text-gray-200 ${index === folderPath.length - 1 ? 'text-accent-primary' : ''}`}
+                    >
+                      {pathItem.name}
+                    </button>
+                  </React.Fragment>
+                ))}
+              </nav>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={openFilePicker}
               disabled={Boolean(uploading) || isTrash}
-              className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-accent-primary px-3 text-sm font-medium text-white hover:bg-accent-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Upload size={16} />
               <span className="hidden sm:inline">Загрузить</span>
@@ -611,7 +668,7 @@ export const FileExplorer = () => {
               onClick={openTrash}
               className={`flex size-9 shrink-0 items-center justify-center rounded-md border ${
                 isTrash
-                  ? 'border-blue-500/60 bg-blue-500/15 text-blue-200'
+                  ? 'border-accent-primary/60 bg-accent-primary/15 text-accent-primary'
                   : 'border-gray-700 bg-bg-card text-gray-400 hover:bg-bg-hover hover:text-white'
               }`}
               aria-label="Открыть корзину"
@@ -634,7 +691,7 @@ export const FileExplorer = () => {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Поиск файлов"
-              className="h-9 w-full rounded-md border border-gray-700 bg-bg-card pl-9 pr-9 text-sm text-gray-200 outline-none placeholder:text-gray-500 focus:border-blue-500"
+              className="h-9 w-full rounded-md border border-gray-700 bg-bg-card pl-9 pr-9 text-sm text-gray-200 outline-none placeholder:text-gray-500 focus:border-accent-primary"
             />
             {query && (
               <button
@@ -661,7 +718,7 @@ export const FileExplorer = () => {
             <select
               value={viewMode}
               onChange={(event) => setViewMode(event.target.value)}
-              className="h-9 w-full appearance-none rounded-md border border-gray-700 bg-bg-card pl-9 pr-8 text-sm text-gray-200 outline-none hover:bg-bg-hover focus:border-blue-500 sm:w-auto"
+              className="h-9 w-full appearance-none rounded-md border border-gray-700 bg-bg-card pl-9 pr-8 text-sm text-gray-200 outline-none hover:bg-bg-hover focus:border-accent-primary sm:w-auto"
               title="Вид"
             >
               <option value="table">Таблица</option>
@@ -687,7 +744,7 @@ export const FileExplorer = () => {
                 setSortBy(value)
                 setSortDescending(value.startsWith('date_'))
               }}
-              className="h-9 w-full appearance-none truncate rounded-md border border-gray-700 bg-bg-card pl-9 pr-8 text-sm text-gray-200 outline-none hover:bg-bg-hover focus:border-blue-500 sm:max-w-[190px]"
+              className="h-9 w-full appearance-none truncate rounded-md border border-gray-700 bg-bg-card pl-9 pr-8 text-sm text-gray-200 outline-none hover:bg-bg-hover focus:border-accent-primary sm:max-w-[190px]"
               title="Сортировка"
             >
               <option value="date_added">По дате добавления</option>
@@ -711,7 +768,7 @@ export const FileExplorer = () => {
         </div>
 
         <div
-          className={`relative flex-1 overflow-y-auto p-4 scrollbar-thin ${isDragging ? 'bg-blue-500/5' : ''}`}
+          className={`relative flex-1 overflow-y-auto p-4 scrollbar-thin ${isDragging ? 'bg-accent-primary/5' : ''}`}
           onClick={closeMenu}
           onContextMenu={(event) => openMenu(event)}
           onTouchStart={(event) => {
@@ -733,8 +790,8 @@ export const FileExplorer = () => {
           />
 
           {isDragging && (
-            <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-400 bg-bg-main/90">
-              <div className="text-center text-blue-200">
+            <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-accent-primary/70 bg-bg-main/90">
+              <div className="text-center text-accent-primary">
                 <Upload size={44} className="mx-auto mb-3" />
                 <p className="font-medium">Отпусти файлы для загрузки</p>
                 <p className="mt-1 text-xs text-gray-400">
@@ -745,23 +802,23 @@ export const FileExplorer = () => {
           )}
 
           {uploading && (
-            <div className="sticky top-0 z-10 mb-4 rounded-md border border-blue-500/40 bg-bg-card p-3 shadow-lg">
+            <div className="sticky top-0 z-10 mb-4 rounded-md border border-accent-primary/40 bg-bg-card p-3 shadow-lg">
               <div className="mb-2 flex items-center justify-between gap-3 text-sm">
                 <span className="min-w-0 truncate text-gray-200">{uploading.name}</span>
-                <span className="shrink-0 text-blue-300">
+                <span className="shrink-0 text-accent-primary">
                   {uploading.current}/{uploading.total} · {uploading.progress}%
                 </span>
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-gray-700">
-                <div className="h-full bg-blue-500" style={{ width: `${uploading.progress}%` }} />
+                <div className="h-full bg-accent-primary" style={{ width: `${uploading.progress}%` }} />
               </div>
             </div>
           )}
 
           {hasSelection && (
-            <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-500/40 bg-bg-card p-3 shadow-lg">
+            <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent-primary/40 bg-bg-card p-3 shadow-lg">
               <div className="flex min-w-0 items-center gap-2 text-sm text-gray-200">
-                <CheckSquare size={17} className="shrink-0 text-blue-300" />
+                <CheckSquare size={17} className="shrink-0 text-accent-primary" />
                 <span className="truncate">Выбрано: {selectedItems.length}</span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -840,7 +897,7 @@ export const FileExplorer = () => {
                     data-drive-item
                     draggable={!isTrash && !isSystemFolder(item) && item.id !== TRASH_FOLDER_ID}
                     className={`grid min-h-12 cursor-pointer grid-cols-[minmax(180px,1fr)_110px_90px_120px] items-center gap-3 border-b px-4 py-2 text-sm last:border-b-0 hover:bg-bg-hover max-md:grid-cols-[minmax(160px,1fr)_90px] ${
-                      isSelected(item) ? 'border-blue-500/30 bg-blue-500/10' : 'border-gray-800'
+                      isSelected(item) ? 'border-accent-primary/30 bg-accent-primary/10' : 'border-gray-800'
                     }`}
                     onDragStart={(event) => handleItemDragStart(event, item)}
                     onDragOver={(event) => {
@@ -885,7 +942,7 @@ export const FileExplorer = () => {
                     data-drive-item
                     draggable={!isTrash && !isSystemFolder(folder)}
                     className={`group relative min-w-0 cursor-pointer overflow-hidden rounded-lg border bg-bg-card hover:border-gray-700 hover:bg-bg-hover ${
-                      isSelected(folder) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-gray-800'
+                      isSelected(folder) ? 'border-accent-primary/60 ring-1 ring-accent-primary/40' : 'border-gray-800'
                     }`}
                     onDragStart={(event) => handleItemDragStart(event, folder)}
                     onDragOver={(event) => {
@@ -915,7 +972,7 @@ export const FileExplorer = () => {
                     data-drive-item
                     draggable={!isTrash}
                     className={`group relative min-w-0 cursor-pointer overflow-hidden rounded-lg border bg-bg-card hover:border-gray-700 hover:bg-bg-hover ${
-                      isSelected(file) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-gray-800'
+                      isSelected(file) ? 'border-accent-primary/60 ring-1 ring-accent-primary/40' : 'border-gray-800'
                     }`}
                     onDragStart={(event) => handleItemDragStart(event, file)}
                     onClick={(event) => handleFileItemClick(event, file)}
@@ -952,7 +1009,7 @@ export const FileExplorer = () => {
                     data-drive-item
                     draggable={!isTrash && !isSystemFolder(folder)}
                     className={`relative min-w-0 cursor-pointer rounded-lg border bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover ${
-                      isSelected(folder) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-transparent'
+                      isSelected(folder) ? 'border-accent-primary/60 ring-1 ring-accent-primary/40' : 'border-transparent'
                     }`}
                     onDragStart={(event) => handleItemDragStart(event, folder)}
                     onDragOver={(event) => {
@@ -980,7 +1037,7 @@ export const FileExplorer = () => {
                     data-drive-item
                     draggable={!isTrash}
                     className={`relative min-w-0 cursor-pointer rounded-lg border bg-bg-card p-4 hover:border-gray-700 hover:bg-bg-hover ${
-                      isSelected(file) ? 'border-blue-500/60 ring-1 ring-blue-500/40' : 'border-transparent'
+                      isSelected(file) ? 'border-accent-primary/60 ring-1 ring-accent-primary/40' : 'border-transparent'
                     }`}
                     onDragStart={(event) => handleItemDragStart(event, file)}
                     onClick={(event) => handleFileItemClick(event, file)}
@@ -1011,7 +1068,7 @@ export const FileExplorer = () => {
                       event.stopPropagation()
                       setQuery('')
                     }}
-                    className="mt-2 text-sm text-blue-400 hover:text-blue-300"
+                    className="mt-2 text-sm text-accent-primary hover:text-accent-primary"
                   >
                     Очистить поиск
                   </button>
