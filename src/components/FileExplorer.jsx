@@ -62,7 +62,16 @@ export const FileExplorer = () => {
   const fileInputRef = useRef(null)
   const dragDepth = useRef(0)
   const longPressTriggered = useRef(false)
-  const { setUploadProgress, setDownloadProgress, loadStats } = useApp()
+  const uploadCancelState = useRef(new Map())
+  const {
+    setUploadProgress,
+    setDownloadProgress,
+    createTransfer,
+    updateTransfer,
+    registerTransferCancel,
+    unregisterTransferCancel,
+    loadStats
+  } = useApp()
   const isSystemFolder = (item) => ['telegram_saved_messages', STORAGE_FOLDER_ID, TRASH_FOLDER_ID].includes(item?.id)
   const isTrash = currentFolder === TRASH_FOLDER_ID
 
@@ -92,6 +101,13 @@ export const FileExplorer = () => {
     const itemIds = new Set(items.map(item => item.id))
     setSelectedIds(ids => ids.filter(id => itemIds.has(id)))
   }, [items])
+
+  useEffect(() => () => {
+    for (const state of uploadCancelState.current.values()) {
+      state.canceled = true
+      state.controller?.abort()
+    }
+  }, [])
 
   const handleFolderClick = (folder) => {
     if (folder.id === TRASH_FOLDER_ID) {
@@ -151,25 +167,93 @@ export const FileExplorer = () => {
     if (!files.length || uploading || isTrash) return
 
     closeMenu()
+    const progressById = new Map()
+    const transferIds = files.map(file => {
+      const id = createTransfer({
+        type: 'upload',
+        name: file.name,
+        size: file.size,
+        status: 'queued',
+        progress: 0
+      })
+      const state = { canceled: false, controller: null }
+      uploadCancelState.current.set(id, state)
+      registerTransferCancel(id, () => {
+        state.canceled = true
+        state.controller?.abort()
+        updateTransfer(id, { status: 'canceled', progress: 0 })
+      })
+      progressById.set(id, 0)
+      return id
+    })
+    const updateBatchProgress = () => {
+      const totalProgress = transferIds.reduce((sum, id) => sum + (progressById.get(id) || 0), 0)
+      setUploadProgress(Math.round(totalProgress / transferIds.length))
+    }
+
+    let nextIndex = 0
+    let activeCount = 0
+    let successCount = 0
+    let failedCount = 0
+
+    const runUpload = async (index) => {
+      const file = files[index]
+      const transferId = transferIds[index]
+      const state = uploadCancelState.current.get(transferId)
+      if (!state || state.canceled) {
+        progressById.set(transferId, 100)
+        updateBatchProgress()
+        return
+      }
+
+      const controller = new AbortController()
+      state.controller = controller
+      activeCount += 1
+      updateTransfer(transferId, { status: 'active', progress: 0 })
+      setUploading({ current: activeCount, total: files.length, name: file.name, progress: 0 })
+
+      try {
+        await uploadFile(file, currentFolder, fileProgress => {
+          const progress = Math.round(fileProgress * 100)
+          progressById.set(transferId, progress)
+          updateTransfer(transferId, { status: 'active', progress })
+          updateBatchProgress()
+          setUploading({ current: activeCount, total: files.length, name: file.name, progress })
+        }, controller.signal)
+        successCount += 1
+        progressById.set(transferId, 100)
+        updateTransfer(transferId, { status: 'done', progress: 100 })
+      } catch (error) {
+        progressById.set(transferId, 100)
+        if (error.name === 'AbortError' || state.canceled) {
+          updateTransfer(transferId, { status: 'canceled', progress: 0 })
+        } else {
+          failedCount += 1
+          updateTransfer(transferId, { status: 'error', error: error.message, progress: 100 })
+        }
+      } finally {
+        activeCount = Math.max(0, activeCount - 1)
+        state.controller = null
+        uploadCancelState.current.delete(transferId)
+        unregisterTransferCancel(transferId)
+        updateBatchProgress()
+      }
+    }
+
+    const worker = async () => {
+      while (nextIndex < files.length) {
+        const index = nextIndex
+        nextIndex += 1
+        await runUpload(index)
+      }
+    }
+
     setUploading({ current: 0, total: files.length, name: files[0].name, progress: 0 })
     try {
-      for (let index = 0; index < files.length; index++) {
-        const file = files[index]
-        setUploading({ current: index + 1, total: files.length, name: file.name, progress: 0 })
-        await uploadFile(file, currentFolder, fileProgress => {
-          const totalProgress = ((index + fileProgress) / files.length) * 100
-          setUploadProgress(Math.round(totalProgress))
-          setUploading({
-            current: index + 1,
-            total: files.length,
-            name: file.name,
-            progress: Math.round(fileProgress * 100)
-          })
-        })
-      }
-      await Promise.all([refresh(), loadStats()])
-    } catch (error) {
-      window.alert(error.message)
+      const concurrency = Math.min(2, files.length)
+      await Promise.all(Array.from({ length: concurrency }, worker))
+      if (successCount > 0) await Promise.all([refresh(), loadStats()])
+      if (failedCount > 0) window.alert(`Не удалось загрузить файлов: ${failedCount}`)
     } finally {
       setUploading(null)
       setUploadProgress(0)
@@ -400,21 +484,33 @@ export const FileExplorer = () => {
     }
   }
 
-  const markDownloadStarted = (duration = 1200) => {
+  const markDownloadStarted = (name = 'Скачивание', duration = 1200) => {
+    const transferId = createTransfer({
+      type: 'download',
+      name,
+      status: 'active',
+      progress: 35
+    })
     setDownloadProgress(35)
-    window.setTimeout(() => setDownloadProgress(100), Math.min(600, duration))
-    window.setTimeout(() => setDownloadProgress(0), duration)
+    window.setTimeout(() => {
+      setDownloadProgress(100)
+      updateTransfer(transferId, { status: 'active', progress: 100 })
+    }, Math.min(600, duration))
+    window.setTimeout(() => {
+      setDownloadProgress(0)
+      updateTransfer(transferId, { status: 'done', progress: 100 })
+    }, duration)
   }
 
   const downloadAction = (item) => {
     closeMenu()
-    markDownloadStarted()
+    markDownloadStarted(item.name)
     downloadItem(item.id)
   }
 
   const downloadSelectedAction = () => {
     closeMenu()
-    markDownloadStarted(Math.max(1400, selectedFileItems.length * 450))
+    markDownloadStarted(`${selectedFileItems.length} файлов`, Math.max(1400, selectedFileItems.length * 450))
     selectedFileItems.forEach((item, index) => {
       window.setTimeout(() => downloadItem(item.id), index * 300)
     })

@@ -115,9 +115,30 @@ export async function openInGoogleDocs(id) {
   }
 }
 
-export function uploadFile(file, folderId = null, onProgress = () => {}) {
+export function uploadFile(file, folderId = null, onProgress = () => {}, signal = null) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
+    let settled = false
+    const rejectOnce = (error) => {
+      if (settled) return
+      settled = true
+      reject(error)
+    }
+    const resolveOnce = (data) => {
+      if (settled) return
+      settled = true
+      resolve(data)
+    }
+    const abortUpload = () => {
+      xhr.abort()
+      rejectOnce(new DOMException('Загрузка отменена', 'AbortError'))
+    }
+    if (signal?.aborted) {
+      abortUpload()
+      return
+    }
+    signal?.addEventListener('abort', abortUpload, { once: true })
+
     xhr.open('POST', `${API_URL}/api/files/upload`)
     xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
     xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name))
@@ -128,17 +149,25 @@ export function uploadFile(file, folderId = null, onProgress = () => {}) {
     })
 
     xhr.addEventListener('load', () => {
+      signal?.removeEventListener('abort', abortUpload)
       let data = {}
       try {
         data = JSON.parse(xhr.responseText || '{}')
       } catch {
-        reject(new Error(`Загрузка: ${xhr.status}`))
+        rejectOnce(new Error(`Загрузка: ${xhr.status}`))
         return
       }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(data)
-      else reject(new Error(data.error || `Загрузка: ${xhr.status}`))
+      if (xhr.status >= 200 && xhr.status < 300) resolveOnce(data)
+      else rejectOnce(new Error(data.error || `Загрузка: ${xhr.status}`))
     })
-    xhr.addEventListener('error', () => reject(new Error('Не удалось загрузить файл')))
+    xhr.addEventListener('error', () => {
+      signal?.removeEventListener('abort', abortUpload)
+      rejectOnce(new Error('Не удалось загрузить файл'))
+    })
+    xhr.addEventListener('abort', () => {
+      signal?.removeEventListener('abort', abortUpload)
+      rejectOnce(new DOMException('Загрузка отменена', 'AbortError'))
+    })
     xhr.send(file)
   })
 }

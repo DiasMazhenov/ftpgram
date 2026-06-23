@@ -1,5 +1,5 @@
-import React from 'react'
-import { Download, Globe, RefreshCw, Server, Upload } from 'lucide-react'
+import React, { useState } from 'react'
+import { ChevronDown, Download, Globe, RefreshCw, Server, Upload, X } from 'lucide-react'
 import packageJson from '../../package.json'
 import { useApp } from '../AppContext'
 
@@ -36,7 +36,89 @@ const TransferStatus = ({ icon: Icon, title, progress, color, idleText }) => (
   </div>
 )
 
+const transferStatusText = {
+  queued: 'В очереди',
+  active: 'Передача',
+  canceling: 'Отмена',
+  done: 'Готово',
+  error: 'Ошибка',
+  canceled: 'Отменено'
+}
+
+const TransferQueue = ({ transfers, cancelTransfer, clearFinishedTransfers }) => {
+  if (!transfers.length) return null
+
+  return (
+    <section className="rounded-lg border border-gray-800 bg-bg-card p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold text-gray-200">Очередь передач</h2>
+          <p className="mt-0.5 truncate text-xs text-gray-500">{transfers.length} операций</p>
+        </div>
+        <button
+          type="button"
+          onClick={clearFinishedTransfers}
+          className="shrink-0 rounded-md border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-bg-hover hover:text-white"
+        >
+          Очистить
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {transfers.slice(0, 6).map(transfer => {
+          const Icon = transfer.type === 'download' ? Download : Upload
+          const canCancel = ['queued', 'active', 'canceling'].includes(transfer.status)
+          return (
+            <div key={transfer.id} className="rounded-md bg-gray-900/60 p-3">
+              <div className="flex items-start gap-2">
+                <Icon size={16} className="mt-0.5 shrink-0 text-accent-primary" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-xs font-medium text-gray-200" title={transfer.name}>
+                      {transfer.name}
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-gray-500">
+                      {transfer.progress}%
+                    </span>
+                  </div>
+                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-gray-700">
+                    <div
+                      className={`h-full ${
+                        transfer.status === 'error'
+                          ? 'bg-red-500'
+                          : transfer.status === 'done'
+                            ? 'bg-green-500'
+                            : 'bg-accent-primary'
+                      }`}
+                      style={{ width: `${transfer.progress}%` }}
+                    />
+                  </div>
+                  <p className="mt-1 truncate text-xs text-gray-500">
+                    {transfer.error || transferStatusText[transfer.status] || transfer.status}
+                  </p>
+                </div>
+                {canCancel && (
+                  <button
+                    type="button"
+                    onClick={() => cancelTransfer(transfer.id)}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-bg-hover hover:text-white"
+                    aria-label="Отменить передачу"
+                    title="Отменить"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 export const Dashboard = () => {
+  const [mobileOpen, setMobileOpen] = useState(false)
   const {
     connectionStatus,
     connectionStatusText,
@@ -44,7 +126,10 @@ export const Dashboard = () => {
     webdavEnabled,
     uploadProgress,
     downloadProgress,
+    transfers,
     stats,
+    cancelTransfer,
+    clearFinishedTransfers,
     checkStatus,
     toggleFtp,
     toggleWebdav
@@ -84,16 +169,36 @@ export const Dashboard = () => {
           </div>
           <button
             onClick={checkStatus}
-            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-bg-card text-gray-300 hover:bg-bg-hover hover:text-white"
+            className="hidden size-9 shrink-0 items-center justify-center rounded-md bg-bg-card text-gray-300 hover:bg-bg-hover hover:text-white lg:flex"
             aria-label="Проверить подключение"
             title="Проверить подключение"
           >
             <RefreshCw size={17} className={connectionStatus === 'connecting' ? 'animate-spin' : ''} />
           </button>
+          <div className="flex shrink-0 items-center gap-2 lg:hidden">
+            <button
+              onClick={checkStatus}
+              className="flex size-9 items-center justify-center rounded-md bg-bg-card text-gray-300 hover:bg-bg-hover hover:text-white"
+              aria-label="Проверить подключение"
+              title="Проверить подключение"
+            >
+              <RefreshCw size={17} className={connectionStatus === 'connecting' ? 'animate-spin' : ''} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileOpen(open => !open)}
+              className="flex size-9 items-center justify-center rounded-md bg-bg-card text-gray-300 hover:bg-bg-hover hover:text-white"
+              aria-label={mobileOpen ? 'Свернуть дашборд' : 'Развернуть дашборд'}
+              aria-expanded={mobileOpen}
+              title={mobileOpen ? 'Свернуть' : 'Развернуть'}
+            >
+              <ChevronDown size={18} className={mobileOpen ? 'rotate-180' : ''} />
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 scrollbar-thin">
+      <div className={`${mobileOpen ? 'block' : 'hidden'} min-h-0 flex-1 space-y-3 overflow-y-auto p-3 scrollbar-thin lg:block`}>
         <section className="rounded-lg border border-gray-800 bg-bg-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -175,6 +280,12 @@ export const Dashboard = () => {
             ))}
           </div>
         </section>
+
+        <TransferQueue
+          transfers={transfers}
+          cancelTransfer={cancelTransfer}
+          clearFinishedTransfers={clearFinishedTransfers}
+        />
 
         {uploadProgress > 0 && (
           <TransferStatus

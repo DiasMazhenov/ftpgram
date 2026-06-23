@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Download, ExternalLink, File, X } from 'lucide-react'
 import { downloadItem, getFileUrl, isOfficeFile, openInGoogleDocs } from '../api'
+import { useApp } from '../AppContext'
 
 const getPreviewType = (file) => {
   const mimeType = file.mime_type || ''
@@ -21,6 +22,7 @@ export const FilePreview = ({ file, onClose }) => {
   const previewUrl = getFileUrl(file.id, true)
   const officeFile = isOfficeFile(file)
   const [jsonPreview, setJsonPreview] = useState({ loading: false, content: '', error: '' })
+  const { createTransfer, updateTransfer, setDownloadProgress } = useApp()
 
   const openGoogleDocs = async () => {
     try {
@@ -28,6 +30,25 @@ export const FilePreview = ({ file, onClose }) => {
     } catch (error) {
       window.alert(error.message)
     }
+  }
+
+  const downloadPreviewFile = () => {
+    const transferId = createTransfer({
+      type: 'download',
+      name: file.name,
+      status: 'active',
+      progress: 35
+    })
+    setDownloadProgress(35)
+    downloadItem(file.id)
+    window.setTimeout(() => {
+      setDownloadProgress(100)
+      updateTransfer(transferId, { status: 'active', progress: 100 })
+    }, 600)
+    window.setTimeout(() => {
+      setDownloadProgress(0)
+      updateTransfer(transferId, { status: 'done', progress: 100 })
+    }, 1200)
   }
 
   useEffect(() => {
@@ -99,7 +120,7 @@ export const FilePreview = ({ file, onClose }) => {
             )}
             <button
               type="button"
-              onClick={() => downloadItem(file.id)}
+              onClick={downloadPreviewFile}
               className="flex size-9 items-center justify-center rounded-md text-gray-400 hover:bg-bg-hover hover:text-white"
               aria-label="Скачать файл"
               title="Скачать"
@@ -182,7 +203,7 @@ export const FilePreview = ({ file, onClose }) => {
                 )}
                 <button
                   type="button"
-                  onClick={() => downloadItem(file.id)}
+                  onClick={downloadPreviewFile}
                   className="inline-flex h-9 items-center gap-2 rounded-md border border-gray-700 px-3 text-sm font-medium text-gray-200 hover:bg-bg-hover"
                 >
                   <Download size={16} />
