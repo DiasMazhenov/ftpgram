@@ -19,6 +19,13 @@ jobs:
   build-macos:
     name: Build macOS ${{ matrix.arch }}
     runs-on: macos-latest
+    env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +42,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
 
       - name: Install Rust
@@ -51,10 +58,67 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build unsigned Tauri app
+      - name: Validate Apple signing configuration
+        run: |
+          has_any=false
+          for value in "$APPLE_ID" "$APPLE_PASSWORD" "$APPLE_TEAM_ID" "$APPLE_CERTIFICATE" "$APPLE_CERTIFICATE_PASSWORD" "$KEYCHAIN_PASSWORD"; do
+            if [ -n "$value" ]; then
+              has_any=true
+            fi
+          done
+
+          if [ "$has_any" = "false" ]; then
+            echo "Apple signing secrets are not configured. Building unsigned artifact for local testing."
+            exit 0
+          fi
+
+          missing=false
+          for name in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "$name is required when Apple signing is enabled."
+              missing=true
+            fi
+          done
+
+          if [ "$missing" = "true" ]; then
+            exit 1
+          fi
+
+          echo "Apple signing secrets are configured. Building signed and notarized artifact."
+
+      - name: Import Apple Developer certificate
+        if: env.APPLE_CERTIFICATE != '' && env.APPLE_CERTIFICATE_PASSWORD != '' && env.KEYCHAIN_PASSWORD != ''
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security find-identity -v -p codesigning build.keychain
+
+      - name: Resolve signing identity
+        if: env.APPLE_CERTIFICATE != '' && env.APPLE_CERTIFICATE_PASSWORD != '' && env.KEYCHAIN_PASSWORD != ''
+        run: |
+          CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -n 1)
+          if [ -z "$CERT_INFO" ]; then
+            echo "Developer ID Application certificate was not found in the imported keychain."
+            exit 1
+          fi
+          CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+          echo "Using signing identity: $CERT_ID"
+
+      - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ env.APPLE_ID }}
+          APPLE_PASSWORD: ${{ env.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ env.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
         with:
           args: ${{ matrix.args }}
 

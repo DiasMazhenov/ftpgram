@@ -153,9 +153,31 @@ npm run tauri:dev
 npm run tauri:build
 ```
 
-Workflow `.github/workflows/tauri-build.yml` собирает unsigned macOS builds для
-Apple Silicon и Intel на `macos-latest`. Результат доступен в GitHub Actions
+Workflow `.github/workflows/tauri-build.yml` собирает macOS builds для Apple
+Silicon и Intel на `macos-latest`. Результат доступен в GitHub Actions
 Artifacts как `ftpgram-macos-apple-silicon` и `ftpgram-macos-intel`.
+
+Если Apple signing secrets не заданы, artifact будет unsigned. После скачивания
+macOS может показать ошибку `FTPgram.app повреждено`. Для локального теста можно
+снять quarantine-флаг:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/FTPgram.app
+```
+
+Для нормальной установки без этой команды нужен Apple Developer ID certificate и
+notarization. Добавь в GitHub repository secrets:
+
+```bash
+APPLE_CERTIFICATE          # base64 от Developer ID Application .p12
+APPLE_CERTIFICATE_PASSWORD # пароль от .p12
+KEYCHAIN_PASSWORD          # любой временный пароль для CI keychain
+APPLE_ID                   # Apple ID email
+APPLE_PASSWORD             # app-specific password
+APPLE_TEAM_ID              # Team ID из Apple Developer account
+```
+
+После этого тот же workflow подпишет и notarize macOS bundle.
 
 Первый Tauri build является desktop shell для существующего frontend. Backend
 по-прежнему должен быть доступен по `VITE_API_URL` или по умолчанию на
