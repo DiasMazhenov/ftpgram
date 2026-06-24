@@ -1,13 +1,16 @@
 {
   "name": "ftpgram",
-  "version": "1.0.36",
+  "version": "1.0.37",
   "description": "Desktop FTP/WebDAV client for Telegram storage",
   "type": "module",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -22,6 +25,7 @@
     "autoprefixer": "^10.4.17",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
-    "vite": "^5.1.4"
+    "vite": "^5.1.4",
+    "@tauri-apps/cli": "^2.0.0"
   }
 }

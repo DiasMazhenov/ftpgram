@@ -142,6 +142,25 @@ ftp-gram/
 
 ## Разработка
 
+## Desktop build через Tauri
+
+Проект содержит Tauri v2 shell в `src-tauri/`. Локально для `npm run
+tauri:build` нужен Rust/Cargo, но macOS artifact можно собрать без локального
+Xcode через GitHub Actions:
+
+```bash
+npm run tauri:dev
+npm run tauri:build
+```
+
+Workflow `.github/workflows/tauri-build.yml` собирает unsigned macOS builds для
+Apple Silicon и Intel на `macos-latest`. Результат доступен в GitHub Actions
+Artifacts как `ftpgram-macos-apple-silicon` и `ftpgram-macos-intel`.
+
+Первый Tauri build является desktop shell для существующего frontend. Backend
+по-прежнему должен быть доступен по `VITE_API_URL` или по умолчанию на
+`http://localhost:4000`.
+
 ### Добавление новых компонентов
 1. Создайте файл компонента в папке `src/components/`
 2. Импортируйте Lucide иконки для визуального оформления

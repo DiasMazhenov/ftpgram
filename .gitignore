@@ -9,6 +9,7 @@ node_modules/
 # Production
 /build
 /dist
+src-tauri/target
 
 # Misc
 .DS_Store
