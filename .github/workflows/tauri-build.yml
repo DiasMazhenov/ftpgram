@@ -19,13 +19,6 @@ jobs:
   build-macos:
     name: Build macOS ${{ matrix.arch }}
     runs-on: macos-latest
-    env:
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
     strategy:
       fail-fast: false
       matrix:
@@ -59,6 +52,14 @@ jobs:
         run: npm ci
 
       - name: Validate Apple signing configuration
+        id: apple-signing
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           has_any=false
           for value in "$APPLE_ID" "$APPLE_PASSWORD" "$APPLE_TEAM_ID" "$APPLE_CERTIFICATE" "$APPLE_CERTIFICATE_PASSWORD" "$KEYCHAIN_PASSWORD"; do
@@ -69,6 +70,7 @@ jobs:
 
           if [ "$has_any" = "false" ]; then
             echo "Apple signing secrets are not configured. Building unsigned artifact for local testing."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -84,10 +86,15 @@ jobs:
             exit 1
           fi
 
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "Apple signing secrets are configured. Building signed and notarized artifact."
 
       - name: Import Apple Developer certificate
-        if: env.APPLE_CERTIFICATE != '' && env.APPLE_CERTIFICATE_PASSWORD != '' && env.KEYCHAIN_PASSWORD != ''
+        if: steps.apple-signing.outputs.enabled == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
@@ -99,7 +106,8 @@ jobs:
           security find-identity -v -p codesigning build.keychain
 
       - name: Resolve signing identity
-        if: env.APPLE_CERTIFICATE != '' && env.APPLE_CERTIFICATE_PASSWORD != '' && env.KEYCHAIN_PASSWORD != ''
+        if: steps.apple-signing.outputs.enabled == 'true'
+        id: signing-identity
         run: |
           CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -n 1)
           if [ -z "$CERT_INFO" ]; then
@@ -108,10 +116,11 @@ jobs:
           fi
           CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
           echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+          echo "identity=$CERT_ID" >> "$GITHUB_OUTPUT"
           echo "Using signing identity: $CERT_ID"
 
       - name: Build unsigned Tauri app
-        if: env.APPLE_CERTIFICATE == ''
+        if: steps.apple-signing.outputs.enabled != 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,15 +128,16 @@ jobs:
           args: ${{ matrix.args }}
 
       - name: Build signed Tauri app
-        if: env.APPLE_CERTIFICATE != ''
+        if: steps.apple-signing.outputs.enabled == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ env.APPLE_ID }}
-          APPLE_PASSWORD: ${{ env.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID }}
-          APPLE_CERTIFICATE: ${{ env.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ steps.signing-identity.outputs.identity }}
         with:
           args: ${{ matrix.args }}
 
