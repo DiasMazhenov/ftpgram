@@ -26,6 +26,13 @@ const require = createRequire(import.meta.url)
 const { FtpSrv, FileSystem, ftpErrors: errors } = require('ftp-srv')
 let ftpServerInstance = null
 
+const RESET_ERROR_CODES = new Set(['ECONNRESET', 'EPIPE', 'ERR_STREAM_DESTROYED'])
+const RESET_ERROR_PATTERNS = [
+  'Socket not writable',
+  'write ECONNRESET',
+  'read ECONNRESET'
+]
+
 const XML_ESCAPE = {
   '&': '&amp;',
   '<': '&lt;',
@@ -211,6 +218,33 @@ function checkProtocolAuth(req, res) {
   res.setHeader('WWW-Authenticate', 'Basic realm="FTPgram"')
   res.status(401).send('Authentication required')
   return false
+}
+
+function isExpectedSocketReset(errorOrMessage, message = '') {
+  const code = errorOrMessage?.code || errorOrMessage?.err?.code
+  const text = [
+    typeof errorOrMessage === 'string' ? errorOrMessage : '',
+    errorOrMessage?.message || '',
+    errorOrMessage?.error || '',
+    message
+  ].filter(Boolean).join(' ')
+
+  return RESET_ERROR_CODES.has(code) || RESET_ERROR_PATTERNS.some(pattern => text.includes(pattern))
+}
+
+function createFtpLogger() {
+  const logger = {
+    child: () => logger,
+    trace: () => {},
+    debug: () => {},
+    info: () => {},
+    warn: (...args) => console.warn('[ftp]', ...args),
+    error: (...args) => {
+      if (isExpectedSocketReset(args[0], args[1])) return
+      console.error('[ftp]', ...args)
+    }
+  }
+  return logger
 }
 
 export function createWebDavHandler({ mountPath = '/webdav', isEnabled = () => true } = {}) {
@@ -413,7 +447,13 @@ export function startFtpServer() {
     pasv_min: Number(process.env.FTP_PASV_MIN || 40000),
     pasv_max: Number(process.env.FTP_PASV_MAX || 40100),
     anonymous: !process.env.FTPGRAM_PROTOCOL_USER,
-    greeting: 'FTPgram'
+    greeting: 'FTPgram',
+    log: createFtpLogger()
+  })
+
+  server.on('client-error', ({ error }) => {
+    if (isExpectedSocketReset(error)) return
+    console.error('❌ FTP client error:', error.message)
   })
 
   server.on('login', ({ connection, username, password }, resolve, reject) => {

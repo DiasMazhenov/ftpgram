@@ -54,8 +54,9 @@ const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
 const DOWNLOAD_CACHE_DIR = process.env.DOWNLOAD_CACHE_DIR || path.join(os.tmpdir(), 'ftpgram-download-cache')
 const APP_TOKEN = process.env.FTPGRAM_APP_TOKEN || process.env.FTPGRAM_AUTH_TOKEN || ''
 const downloadCacheJobs = new Map()
+const isRenderRuntime = process.env.RENDER === 'true' || Boolean(process.env.RENDER_SERVICE_ID)
 const protocolState = {
-  ftp: process.env.FTP_ENABLED !== 'false',
+  ftp: process.env.FTP_ENABLED ? process.env.FTP_ENABLED !== 'false' : !isRenderRuntime,
   webdav: process.env.WEBDAV_ENABLED !== 'false'
 }
 
