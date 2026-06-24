@@ -72,7 +72,8 @@ export const FileExplorer = () => {
     registerTransferCancel,
     unregisterTransferCancel,
     loadAuditLog,
-    loadStats
+    loadStats,
+    syncStatus
   } = useApp()
   const isSystemFolder = (item) => ['telegram_saved_messages', STORAGE_FOLDER_ID, TRASH_FOLDER_ID].includes(item?.id)
   const isTrash = currentFolder === TRASH_FOLDER_ID
@@ -94,6 +95,11 @@ export const FileExplorer = () => {
     const interval = setInterval(() => loadFiles(currentFolder), 15000)
     return () => clearInterval(interval)
   }, [currentFolder, loadFiles])
+
+  useEffect(() => {
+    if (!syncStatus?.version) return
+    loadFiles(currentFolder)
+  }, [syncStatus?.version, currentFolder, loadFiles])
 
   useEffect(() => {
     setSelectedIds([])

@@ -57,7 +57,9 @@ const auditActionText = {
   empty_trash: 'Корзина очищена',
   move_item: 'Перемещено',
   toggle_protocol: 'Протокол изменен',
-  reindex: 'Индекс обновлен'
+  reindex: 'Индекс обновлен',
+  telegram_sync_file: 'Telegram sync',
+  telegram_sync_delete: 'Удалено в Telegram'
 }
 
 const formatAuditTime = value => {
@@ -184,6 +186,7 @@ export const Dashboard = () => {
     transfers,
     stats,
     auditLog,
+    syncStatus,
     authRequired,
     cancelTransfer,
     clearFinishedTransfers,
@@ -285,7 +288,9 @@ export const Dashboard = () => {
               <Globe className="shrink-0 text-accent-primary" size={20} />
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold text-gray-200">Telegram</h2>
-                <p className="mt-0.5 truncate text-xs text-gray-500">Подключение к API</p>
+                <p className="mt-0.5 truncate text-xs text-gray-500">
+                  {syncStatus.enabled ? `Live sync v${syncStatus.version}` : 'Подключение к API'}
+                </p>
               </div>
             </div>
             <span className={classes('shrink-0 text-xs font-medium', statusColor)}>

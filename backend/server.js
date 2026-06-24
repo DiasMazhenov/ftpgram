@@ -35,6 +35,7 @@ import {
   isConnected,
   disconnect,
   autoConnect,
+  getSyncStatus,
   reindex,
   deleteTelegramFiles,
   downloadTelegramFile,
@@ -184,6 +185,7 @@ app.get('/api/status', (req, res) => {
   res.json({
     connected: isConnected(),
     timestamp: new Date().toISOString(),
+    sync: getSyncStatus(),
     protocols: {
       ftp: {
         enabled: protocolState.ftp && isFtpServerRunning(),

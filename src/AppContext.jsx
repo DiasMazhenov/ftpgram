@@ -16,6 +16,7 @@ export const AppProvider = ({ children }) => {
   const [transfers, setTransfers] = useState([])
   const [stats, setStats] = useState({ files: 0, folders: 0, totalSize: 0 })
   const [auditLog, setAuditLog] = useState([])
+  const [syncStatus, setSyncStatus] = useState({ enabled: false, version: 0, lastEventAt: null, lastError: null })
   const [authChecked, setAuthChecked] = useState(false)
   const [authRequired, setAuthRequired] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
@@ -37,6 +38,7 @@ export const AppProvider = ({ children }) => {
         setFtpEnabled(Boolean(status.protocols.ftp?.enabled))
         setWebdavEnabled(Boolean(status.protocols.webdav?.enabled))
       }
+      if (status.sync) setSyncStatus(status.sync)
     } catch {
       setConnectionStatus('disconnected')
     }
@@ -192,6 +194,7 @@ export const AppProvider = ({ children }) => {
         transfers,
         stats,
         auditLog,
+        syncStatus,
         authChecked,
         authRequired,
         authenticated,

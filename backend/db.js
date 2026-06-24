@@ -489,6 +489,7 @@ export function upsertIndexedFile(
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
     ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
       size = excluded.size,
       mime_type = excluded.mime_type,
       telegram_message_id = excluded.telegram_message_id,
@@ -511,6 +512,22 @@ export function upsertIndexedFile(
     sourceCreatedAt,
     sourceModifiedAt
   )
+}
+
+export function deleteIndexedFilesByMessageIds(messageIds, { chatId = null, source = null } = {}) {
+  if (!messageIds.length) return { changes: 0 }
+  const placeholders = messageIds.map(() => '?').join(', ')
+  const chatFilter = chatId ? 'AND telegram_chat_id = ?' : ''
+  const sourceFilter = source ? 'AND telegram_source = ?' : ''
+  const params = [...messageIds]
+  if (chatId) params.push(chatId)
+  if (source) params.push(source)
+  return db.prepare(`
+    DELETE FROM files
+    WHERE telegram_message_id IN (${placeholders})
+      ${chatFilter}
+      ${sourceFilter}
+  `).run(...params)
 }
 
 export function removeMissingIndexedFiles(source, messageIds) {

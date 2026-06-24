@@ -1,11 +1,16 @@
 import { TelegramClient } from 'telegram'
 import { StringSession } from 'telegram/sessions/index.js'
 import { CustomFile } from 'telegram/client/uploads.js'
+import { NewMessage } from 'telegram/events/NewMessage.js'
+import { EditedMessage } from 'telegram/events/EditedMessage.js'
+import { DeletedMessage } from 'telegram/events/DeletedMessage.js'
 import {
   SAVED_MESSAGES_FOLDER_ID,
   STORAGE_FOLDER_ID,
   cleanupLegacyChatFolders,
+  deleteIndexedFilesByMessageIds,
   insertFile,
+  logAudit,
   removeMissingIndexedFiles,
   upsertIndexedFile
 } from './db.js'
@@ -13,7 +18,15 @@ import {
 let client = null
 let connected = false
 let phoneCodeHash = ''
+let liveSyncStarted = false
+let liveSyncTargets = []
 const DEFAULT_STORAGE_CHAT = 'FTPgram Storage'
+const syncState = {
+  enabled: false,
+  version: 0,
+  lastEventAt: null,
+  lastError: null
+}
 
 // Сессия из переменной окружения (для Render)
 const sessionString = process.env.TELEGRAM_SESSION || ''
@@ -25,6 +38,10 @@ export function isConnected() {
 
 export function getSessionString() {
   return client ? client.session.save() : ''
+}
+
+export function getSyncStatus() {
+  return { ...syncState }
 }
 
 // Авто-подключение при старте если есть сессия
@@ -40,6 +57,7 @@ export async function autoConnect() {
     connected = true
     console.log('✅ Авто-подключено к Telegram (сессия из env)')
     await indexFiles()
+    await startLiveSync()
     return true
   } catch (err) {
     console.error('❌ Ошибка авто-подключения:', err.message)
@@ -98,6 +116,7 @@ export async function signIn(phoneNumber, code, password = '') {
 
   // Индексация
   await indexFiles()
+  await startLiveSync()
 
   return {
     success: true,
@@ -109,6 +128,24 @@ export async function signIn(phoneNumber, code, password = '') {
 // Индексация файлов (экспортируем для вызова из API)
 export async function reindex() {
   await indexFiles()
+}
+
+function markSyncEvent(action, details = {}) {
+  syncState.enabled = true
+  syncState.version += 1
+  syncState.lastEventAt = new Date().toISOString()
+  syncState.lastError = null
+  logAudit(action, {
+    itemType: 'telegram',
+    itemId: details.itemId || null,
+    itemName: details.itemName || 'Telegram live sync',
+    details
+  })
+}
+
+function markSyncError(error) {
+  syncState.lastError = error.message
+  console.error('❌ Telegram live sync:', error.message)
 }
 
 export async function deleteTelegramFiles(files) {
@@ -195,6 +232,120 @@ export async function uploadFile(filePath, name, size, mimeType, folderId = null
 
   insertFile(id, name, targetFolderId, size, mimeType, message.id, chatId, source, sourceCreatedAt)
   return { id, name, size, mime_type: mimeType, folder_id: targetFolderId, type: 'file' }
+}
+
+function getMessagePeerId(message) {
+  return message?.peerId?.channelId
+    || message?.peerId?.chatId
+    || message?.peerId?.userId
+    || message?.chatId
+    || null
+}
+
+function peerToNumber(value) {
+  if (!value) return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+function isSamePeer(message, entity) {
+  const messagePeerId = peerToNumber(getMessagePeerId(message))
+  const entityId = peerToNumber(entity?.id)
+  return Boolean(messagePeerId && entityId && Math.abs(messagePeerId) === Math.abs(entityId))
+}
+
+async function getLiveSyncTargets() {
+  if (liveSyncTargets.length) return liveSyncTargets
+  const storageChat = process.env.TELEGRAM_STORAGE_CHAT || DEFAULT_STORAGE_CHAT
+  const storageEntity = await getStorageEntity(storageChat)
+  const savedEntity = await client.getEntity('me')
+  liveSyncTargets = [
+    {
+      source: 'storage',
+      prefix: 'storage',
+      folderId: STORAGE_FOLDER_ID,
+      entity: storageEntity,
+      chatId: peerToNumber(storageEntity?.id)
+    },
+    {
+      source: 'saved',
+      prefix: 'saved',
+      folderId: SAVED_MESSAGES_FOLDER_ID,
+      entity: savedEntity,
+      chatId: peerToNumber(savedEntity?.id)
+    }
+  ]
+  return liveSyncTargets
+}
+
+function upsertLiveMessage(message, target) {
+  if (!message?.file) return false
+  const file = message.file
+  const id = `${target.prefix}_msg_${message.id}`
+  upsertIndexedFile(
+    id,
+    file.name || `file_${message.id}`,
+    Number(file.size || 0),
+    file.mimeType || 'unknown',
+    message.id,
+    target.chatId,
+    target.folderId,
+    target.source,
+    normalizeTelegramDate(message.date),
+    normalizeTelegramDate(message.editDate || message.date)
+  )
+  markSyncEvent('telegram_sync_file', {
+    itemId: id,
+    itemName: file.name || `file_${message.id}`,
+    source: target.source,
+    messageId: message.id
+  })
+  return true
+}
+
+async function handleLiveMessage(event) {
+  try {
+    const message = event.message
+    if (!message?.file) return
+    const targets = await getLiveSyncTargets()
+    const target = targets.find(item => isSamePeer(message, item.entity))
+    if (!target) return
+    upsertLiveMessage(message, target)
+  } catch (error) {
+    markSyncError(error)
+  }
+}
+
+async function handleDeletedMessage(event) {
+  try {
+    const messageIds = (event.deletedIds || []).map(Number).filter(Boolean)
+    if (!messageIds.length) return
+    const chatId = peerToNumber(event.peer?.channelId || event.peer?.chatId || event.peer?.userId)
+    const result = deleteIndexedFilesByMessageIds(messageIds, {
+      chatId,
+      source: chatId ? null : 'saved'
+    })
+    if (result.changes > 0) {
+      markSyncEvent('telegram_sync_delete', {
+        itemName: `${result.changes} файлов`,
+        messageIds,
+        chatId
+      })
+    }
+  } catch (error) {
+    markSyncError(error)
+  }
+}
+
+async function startLiveSync() {
+  if (!client || !connected || liveSyncStarted) return
+  await getLiveSyncTargets()
+  liveSyncStarted = true
+  syncState.enabled = true
+  client.addEventHandler(handleLiveMessage, new NewMessage({}))
+  client.addEventHandler(handleLiveMessage, new EditedMessage({}))
+  client.addEventHandler(handleDeletedMessage, new DeletedMessage({}))
+  console.log('🔄 Telegram live sync включен')
 }
 
 function normalizeTelegramDate(value) {
@@ -289,5 +440,8 @@ export async function disconnect() {
   if (client) {
     await client.disconnect()
     connected = false
+    liveSyncStarted = false
+    liveSyncTargets = []
+    syncState.enabled = false
   }
 }
